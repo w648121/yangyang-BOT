@@ -1,0 +1,41 @@
+// 核心运行配置：消息队列、去重、持久化写入和诊断面板。
+// 通常只在调优吞吐量、队列容量或诊断阈值时修改。
+// 本页不包含机器人业务功能或账号密钥。
+{
+  "LiteDbWriteBehind": {
+    "FlushIntervalMilliseconds": 250,
+    "MaxBatchSize": 128,
+    "PendingKeyWarningThreshold": 1024
+  },
+  "RuntimeDiagnostics": {
+    "SampleWindowSize": 512,
+    "RecentEventLimit": 50
+  },
+  "DiagnosticsDashboard": {
+    "Enabled": true,
+    "Port": 8770,
+    "Backlog": 32,
+    "AiP95WarningMs": 15000,
+    "VoiceP95WarningMs": 15000,
+    "MessageQueueWarning": 10,
+    "VoiceQueueWarning": 4
+  },
+  "MessageDeduplication": {
+    "RetentionSeconds": 600,
+    "MaximumEntries": 50000
+  },
+  "MessageDispatch": {
+    "PartitionCount": 8,
+    "CapacityPerPartition": 64
+  },
+  "ReplyScheduling": {
+    "Capacity": 64,
+    "WorkerCount": 4
+  },
+  "ProgramUpdates": {
+    "CurrentVersion": "2026.07.22.2",
+    "ChangeLogFile": "data/program-updates.jsonl",
+    "DefaultEntries": 1,
+    "MaxEntries": 8
+  }
+}

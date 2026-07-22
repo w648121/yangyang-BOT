@@ -1,0 +1,153 @@
+// 对话行为配置：人设、上下文、私聊触发、主动发言和自然接话。
+// 多个 AllowedGroupIds 分别控制不同功能，当前内容相同但不是重复项，可独立调整。
+// 定向回复当前没有目标用户，因此已明确关闭；重新使用时再启用并配置目标。
+{
+  "ConversationStyle": {
+    "Enabled": true,
+    "ProfileFile": "personas/yangyang-style-card.md",
+    "MaxExamplesPerPrompt": 2
+  },
+  "ChatHistory": {
+    "RawContextDays": 3,
+    "MaxRecentMessagesInPrompt": 24,
+    "MaxSummaryItems": 12,
+    "MaxSummaryCharacters": 1800,
+    "MaxSourceMessageCharacters": 180
+  },
+  "Personas": {
+    "ProfileId": "yangyang",
+    "Version": "yangyang-v3-dynamic",
+    "Language": "zh-CN",
+    "Voice": "yangyang",
+    "CorpusFile": "data/personas/yangyang-lines.jsonl",
+    "PlotKnowledgeFile": "data/personas/yangyang-plot-events.jsonl",
+    "MaxPlotEvents": 3,
+    "MaxCorpusExamples": 2,
+    "ComplianceRewriteEnabled": true,
+    "ComplianceMinimumScore": 78,
+    "ComplianceMaxCasualCharacters": 170,
+    "ActivatedAtUtc": "2026-07-21T10:53:53Z",
+    "Directory": "personas",
+    "DefaultPersonaFile": "yangyang.md",
+    "Bindings": {
+      "2649033257": "yangyang.md"
+    }
+  },
+  "RelationshipTrajectory": {
+    "Enabled": true,
+    "SchemaVersion": "v3",
+    "DatabaseFileName": "relationship-v3.db",
+    "AcceptEventsAfterUtc": "2026-07-21T10:53:53Z",
+    "ImportLegacyData": false,
+    "ActivePersonaStage": "xuanling",
+    "DefaultCounterpartRole": "rover",
+    "RawEventDays": 3,
+    "MaxRecentEventsInPrompt": 14,
+    "MaxEvidenceCharacters": 2600,
+    "MaxInferenceItemsInPrompt": 5,
+    "InferenceRetentionDays": 30
+  },
+  "PersonaState": {
+    "Enabled": true,
+    "MoodHalfLifeMinutes": 120,
+    "ConfirmationsRequired": 2,
+    "MaxFactsInPrompt": 6,
+    "TopicMemoryHours": 24,
+    "MaxFactLength": 120,
+    "MaxGroupMemberCards": 5
+  },
+  "ProactiveAgent": {
+    "Enabled": true,
+    "DryRun": false,
+    "AllowedGroupIds": [
+      1095402532,
+      958354615,
+      427922086,
+      1012853323,
+      829269550,
+      196119432,
+      935869005,
+      813832971
+    ],
+    "ScanIntervalSeconds": 60,
+    "InitialDelaySeconds": 120,
+    "MaximumGroupsPerScan": 1,
+    "MinimumIntervalMinutes": 12,
+    "ActiveConversationWindowMinutes": 8,
+    "CoolingConversationWindowMinutes": 25,
+    "LivelySpeakerThreshold": 3,
+    "MinimumHourlyMessages": 3,
+    "MaximumHourlyMessages": 5,
+    "QuietHoursStart": 23,
+    "QuietHoursEnd": 8,
+    "ContextMessageLimit": 16,
+    "MaxTextLength": 80,
+    "MaxArticleLength": 260,
+    "DuplicateSimilarityThreshold": 0.72,
+    "MaximumArticlesPerHourPerGroup": 1,
+    "AllowText": true,
+    "AllowSticker": true,
+    "AllowVoice": true,
+    "AllowArticles": true,
+    "TextWeight": 0.55,
+    "StickerWeight": 0.1,
+    "VoiceWeight": 0.15,
+    "ArticleWeight": 0.2,
+    "Voice": "yangyang"
+  },
+  "ReactiveConversation": {
+    "Enabled": true,
+    "AllowedGroupIds": [
+      1095402532,
+      958354615,
+      427922086,
+      1012853323,
+      829269550,
+      196119432,
+      935869005,
+      813832971
+    ],
+    "BaseReplyProbability": 0.08,
+    "QuestionReplyProbability": 0.28,
+    "BotNameReplyProbability": 0.35,
+    "MinGroupReplyIntervalSeconds": 150,
+    "MinUserReplyIntervalSeconds": 420,
+    "MaxRepliesPerGroupPerHour": 6,
+    "ContextMessageLimit": 12,
+    "MinMessageCharacters": 2,
+    "MinNaturalDelaySeconds": 2,
+    "MaxNaturalDelaySeconds": 9,
+    "MaxReplyCharacters": 150
+  },
+  "PrivateConversation": {
+    "Enabled": true,
+    "TriggerPrefix": "~ai",
+    "MergeWindowSeconds": 2,
+    "MaxMergedMessages": 8
+  },
+  "ImplicitAddress": {
+    "Enabled": true,
+    "AllowedGroupIds": [
+      1095402532,
+      958354615,
+      427922086,
+      1012853323,
+      829269550,
+      196119432,
+      935869005,
+      813832971
+    ],
+    "BotAliases": [
+      "小黄瓜",
+      "秧秧",
+      "央央"
+    ],
+    "RecentBotReplyMinutes": 15,
+    "MaxMessageCharacters": 300,
+    "ContextMessageLimit": 16,
+    "UseSemanticClassifier": false
+  },
+  "TargetedInteraction": {
+    "Enabled": false
+  }
+}

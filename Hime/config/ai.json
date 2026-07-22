@@ -1,0 +1,46 @@
+// AI 与管理员配置：云端模型、OpenCode 路由和管理员权限。
+// AI 密钥请放在 appsettings.Local.json 或环境变量 AI__ApiKey。
+// 更换模型、超时或管理员 QQ 时主要修改本页。
+{
+  "AI": {
+    "Protocol": "OpenAI",
+    "BaseUrl": "https://api.minimaxi.com/v1",
+    "Model": "MiniMax-M3",
+    "MaxOutputTokens": 1024,
+    "Temperature": 0.85,
+    "TopP": 0.95
+  },
+  "OpenCodeAgent": {
+    "Enabled": true,
+    "AutoStartLocalServer": true,
+    "ServerExecutablePath": "C:\\Users\\xiaomao\\AppData\\Roaming\\npm\\opencode.ps1",
+    "BaseUrl": "http://127.0.0.1:42116",
+    "AgentName": "hime-qq",
+    "StartupTimeoutSeconds": 20,
+    "RequestTimeoutSeconds": 45,
+    "CircuitBreakerFailureThreshold": 3,
+    "CircuitBreakerDurationSeconds": 45,
+    "MaxTranscriptCharacters": 12000
+  },
+  "ModelRouting": {
+    "Enabled": true,
+    "UseHighCapabilityForTechnical": true,
+    "UseHighCapabilityForComplexSocial": true,
+    "ComplexSocialPromptMinCharacters": 70,
+    "ComplexPromptMinCharacters": 120,
+    "HighCapabilityProviderId": "hime-minimax",
+    "HighCapabilityModelId": "MiniMax-M3"
+  },
+  "Admin": {
+    "Enabled": true,
+    "AllowedUserIds": [
+      1928076256,
+      1762889143
+    ],
+    "PrivateChatOnly": true,
+    "AllowedReadDirectories": [
+      "personas"
+    ],
+    "MaxFileReadCharacters": 6000
+  }
+}

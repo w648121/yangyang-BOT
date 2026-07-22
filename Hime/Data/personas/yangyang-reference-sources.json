@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-07-21T00:00:00+08:00",
+  "policy": {
+    "normalPersonaDefaultCorpus": "yangyang-lines.jsonl",
+    "xuanlingCorpusIsolated": "yangyang-xuanling-lines.jsonl",
+    "archiveMaterials": "yangyang-reference-materials.jsonl",
+    "deduplication": "Unicode NFKC + punctuation/whitespace-insensitive exact match; >=12-character near-match threshold 0.96",
+    "deletedWikiTextExcluded": true
+  },
+  "sources": [
+    {
+      "name": "鸣潮游戏客户端角色语音（2.2整理版）",
+      "url": "https://modelscope.cn/datasets/aihobbyist/WutheringWaves_Dataset",
+      "kind": "extracted_official_game_assets",
+      "licenseNote": "Dataset page lists GPL-3.0; original game assets remain © Kuro Games.",
+      "use": "Existing 649-line normal Yangyang corpus"
+    },
+    {
+      "name": "Hugging Face Wuthering Waves voice mirror",
+      "url": "https://huggingface.co/datasets/ultemica/wuthering-waves-voices",
+      "kind": "research_mirror",
+      "licenseNote": "Research/non-commercial notice; game version 2.2.",
+      "use": "Cross-check dataset version, schema and provenance"
+    },
+    {
+      "name": "鸣潮WIKI BWiki：秧秧",
+      "url": "https://wiki.biligame.com/wutheringwaves/角色/秧秧",
+      "kind": "community_wiki_aggregating_official_game_text",
+      "use": "Normal voice lines, version letters, character facts and Xuanling archive"
+    },
+    {
+      "name": "鸣潮官方网站：秧秧·玄翎",
+      "url": "https://mc.kurogames.com/m/zmcs",
+      "kind": "official",
+      "use": "Identity, CV and official profile cross-check"
+    },
+    {
+      "name": "《鸣潮》共鸣者战斗演示｜秧秧·玄翎",
+      "url": "https://www.bilibili.com/video/BV1mtTD6rEtQ/",
+      "kind": "official_video",
+      "use": "Xuanling battle voice references"
+    },
+    {
+      "name": "《鸣潮》共鸣者「秧秧·玄翎」PV｜噩梦",
+      "url": "https://www.bilibili.com/video/BV1ZKMe61Eth/",
+      "kind": "official_video",
+      "use": "Xuanling characterization reference; non-Yangyang narration excluded from cadence corpus"
+    },
+    {
+      "name": "鸣潮官方微博",
+      "url": "https://weibo.com/u/7730797357",
+      "kind": "official_social",
+      "use": "3.5 Xuanling profile and announcement cross-check"
+    }
+  ]
+}

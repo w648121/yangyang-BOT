@@ -1,0 +1,164 @@
+// 语音档案配置：每个可选声线、模型文件、参考音频和情绪参数。
+// 默认本音为 yangyang-indextts2-faithful-a。
+// 已删除与它完全相同且未被代码引用的 faithful-a-original 重复档案。
+{
+  "VoiceSynthesis": {
+    "Voices": {
+      "486": {
+        "Enabled": true,
+        "ModelPath": "486/486.pth",
+        "IndexPath": "486/added_IVF73_Flat_nprobe_1_486_v2.index",
+        "BaseTtsVoice": "Microsoft Huihui Desktop",
+        "Pitch": 0
+      },
+      "nina": {
+        "Enabled": true,
+        "ModelPath": "nina/nina2.pth",
+        "IndexPath": "nina/added_IVF110_Flat_nprobe_1_nina2_v2.index",
+        "BaseTtsVoice": "Microsoft Huihui Desktop",
+        "Pitch": 0
+      },
+      "mmk": {
+        "Enabled": true,
+        "ModelPath": "mmk/MMK2.pth",
+        "IndexPath": "mmk/added_IVF76_Flat_nprobe_1_MMK2_v2.index",
+        "BaseTtsVoice": "Microsoft Huihui Desktop",
+        "Pitch": 0
+      },
+      "luoluo": {
+        "Enabled": true,
+        "ModelPath": "luoluo/luoluo.pth",
+        "IndexPath": "luoluo/luoluo.index",
+        "BaseTtsVoice": "Microsoft Huihui Desktop",
+        "Pitch": 0
+      },
+      "yangyang": {
+        "Enabled": true,
+        "Engine": "index-tts2",
+        "IndexTts": {
+          "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\【默认】我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。.wav",
+          "EmotionAlpha": 1,
+          "UseEmotionVector": false
+        },
+        "GptSoVits": {
+          "GptModelPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\秧秧_ZH-e10.ckpt",
+          "SoVitsModelPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\秧秧_ZH_e10_s510_l32.pth",
+          "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\【默认】我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。.wav",
+          "PromptText": "我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。",
+          "PromptLanguage": "zh",
+          "TextLanguage": "zh",
+          "TextSplitMethod": "cut5",
+          "SpeedFactor": 1,
+          "PreferStableReferenceAudio": true,
+          "PreferStableProsody": true,
+          "EmotionReferences": {
+            "neutral": {
+              "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\zh_vo_Huanglong_main_1_2_10_1.wav",
+              "PromptText": "虽然做了一些心理准备，但现场似乎比莫特斐先生形容的要……好上不少？",
+              "PromptLanguage": "zh",
+              "SpeedFactor": 1.02
+            },
+            "happy": {
+              "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\zh_vo_zhuiyuejie_second_2_30.wav",
+              "PromptText": "嗯……漂泊者，今天还开心吗？",
+              "PromptLanguage": "zh",
+              "SpeedFactor": 1.04
+            },
+            "shy": {
+              "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\zh_vo_Heihaian_main_1_3_2_39.wav",
+              "PromptText": "我、我只是觉得这件事对你很重要……",
+              "PromptLanguage": "zh",
+              "SpeedFactor": 0.98
+            },
+            "comforting": {
+              "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\zh_vo_Huanglong_main_1_6_53_10.wav",
+              "PromptText": "你独自留在野外的话，千万要小心，有事情我们随时终端联络。",
+              "PromptLanguage": "zh",
+              "SpeedFactor": 0.96
+            },
+            "sad": {
+              "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\zh_vo_Huanglong_main_1_4_72_5.wav",
+              "PromptText": "……抱歉，我又沉浸在自己的世界里了。",
+              "PromptLanguage": "zh",
+              "SpeedFactor": 0.94
+            },
+            "serious": {
+              "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\zh_vo_Heihaian_main_1_3_8_17.wav",
+              "PromptText": "那里残留着的频率非常混乱，直觉告诉我……很危险。",
+              "PromptLanguage": "zh",
+              "SpeedFactor": 1
+            }
+          }
+        }
+      },
+      "yangyang-v2proplus": {
+        "Enabled": true,
+        "Engine": "gpt-sovits",
+        "GptSoVits": {
+          "GptModelPath": "D:\\PycharmProjects\\Hime\\tools\\GPT-SoVITS\\GPT_SoVITS\\pretrained_models\\s1v3.ckpt",
+          "SoVitsModelPath": "D:\\PycharmProjects\\Hime\\tools\\GPT-SoVITS\\GPT_SoVITS\\pretrained_models\\v2Pro\\s2Gv2ProPlus.pth",
+          "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\【默认】我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。.wav",
+          "PromptText": "我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。",
+          "PromptLanguage": "zh",
+          "TextLanguage": "zh",
+          "TextSplitMethod": "cut5",
+          "SpeedFactor": 1,
+          "PreferStableReferenceAudio": true,
+          "PreferStableProsody": true
+        }
+      },
+      "yangyang-japanese": {
+        "Enabled": true,
+        "Engine": "gpt-sovits",
+        "GptSoVits": {
+          "GptModelPath": "D:\\PycharmProjects\\Hime\\tools\\GPT-SoVITS\\GPT_SoVITS\\pretrained_models\\s1v3.ckpt",
+          "SoVitsModelPath": "D:\\PycharmProjects\\Hime\\tools\\GPT-SoVITS\\GPT_SoVITS\\pretrained_models\\v2Pro\\s2Gv2ProPlus.pth",
+          "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\【默认】我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。.wav",
+          "PromptText": "我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。",
+          "PromptLanguage": "zh",
+          "TextLanguage": "ja",
+          "TextSplitMethod": "cut5",
+          "SpeedFactor": 1,
+          "PreferStableReferenceAudio": true,
+          "PreferStableProsody": true
+        }
+      },
+      "yangyang-indextts2": {
+        "Enabled": true,
+        "Engine": "index-tts2",
+        "IndexTts": {
+          "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\【默认】我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。.wav",
+          "EmotionAlpha": 0.75,
+          "UseEmotionVector": true
+        }
+      },
+      "yangyang-indextts2-faithful-a": {
+        "Enabled": true,
+        "Engine": "index-tts2",
+        "IndexTts": {
+          "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\【默认】我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。.wav",
+          "EmotionAlpha": 1,
+          "UseEmotionVector": false
+        }
+      },
+      "yangyang-indextts2-faithful-a-emotion15": {
+        "Enabled": true,
+        "Engine": "index-tts2",
+        "IndexTts": {
+          "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\gpt-sovits\\yangyang-zh\\package\\v4\\秧秧_ZH\\reference_audios\\中文\\emotions\\【默认】我仅在授任大典中远远地见过现任令尹一面，令尹的处事个性，我无法妄言。.wav",
+          "EmotionAlpha": 1.5,
+          "UseEmotionVector": true
+        }
+      },
+      "yangyang-indextts2-faithful-b": {
+        "Enabled": true,
+        "Engine": "index-tts2",
+        "IndexTts": {
+          "ReferenceAudioPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\indextts2\\yangyang\\reference\\yangyang-official-introduction.wav",
+          "EmotionAlpha": 1,
+          "UseEmotionVector": false
+        }
+      }
+    }
+  }
+}

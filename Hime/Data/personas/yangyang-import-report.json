@@ -1,0 +1,58 @@
+{
+  "existingNormal": 649,
+  "existingDuplicatesRemoved": 23,
+  "existingAfterDedup": 626,
+  "normalCandidates": 309,
+  "normalAdded": 271,
+  "normalAfter": 897,
+  "normalDuplicates": {
+    "exact": 38,
+    "near": 0,
+    "empty": 0
+  },
+  "xuanlingCandidates": 25,
+  "xuanlingAdded": 25,
+  "xuanlingDuplicates": {
+    "exact": 0,
+    "near": 0,
+    "empty": 0
+  },
+  "referenceMaterials": 22,
+  "referenceMaterialsByVariant": {
+    "normal": 11,
+    "xuanling": 11
+  },
+  "referenceMaterialsByType": {
+    "character_story": 10,
+    "keepsake": 6,
+    "resonance_report": 4,
+    "profile": 2
+  },
+  "normalSha256": "cdeaa4c6fd0d59b64b4f30d27aef95298cac8a303abce51197ed363dcf0b14ad",
+  "xuanlingSha256": "8e86c806e2d4b2bbe9d4ffcbd5b5d1fbdf416af72841a8f033ac3874c9f11556",
+  "normalSceneCounts": {
+    "casual": 494,
+    "relationship": 200,
+    "danger": 73,
+    "investigation": 59,
+    "care": 46,
+    "memory": 25
+  },
+  "normalEmotionCounts": {
+    "neutral": 705,
+    "serious": 123,
+    "comforting": 39,
+    "happy": 18,
+    "sad": 12
+  },
+  "xuanlingSceneCounts": {
+    "casual": 17,
+    "relationship": 4,
+    "care": 2,
+    "memory": 2
+  },
+  "xuanlingEmotionCounts": {
+    "neutral": 23,
+    "comforting": 2
+  }
+}

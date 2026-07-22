@@ -1,0 +1,37 @@
+// 外部功能服务配置：网易云点歌与本机 GsCore 鸣潮服务。
+// 对应功能启用时才需要修改端口、程序路径和超时。
+// 空令牌已省略，未配置时继续使用安全默认值。
+{
+  "Music": {
+    "Enabled": true,
+    "AutoStartLocalServer": true,
+    "ServerExecutablePath": "D:\\PycharmProjects\\Hime\\tools\\ncm-api-rs\\v0.1.0\\ncm-server.exe",
+    "ServerWorkingDirectory": "D:\\PycharmProjects\\Hime\\tools\\ncm-api-rs\\v0.1.0",
+    "ServerHost": "127.0.0.1",
+    "ServerPort": 3100,
+    "ApiBaseUrl": "http://127.0.0.1:3100",
+    "SearchResultLimit": 5,
+    "RequestTimeoutSeconds": 12,
+    "SelectionExpiryMinutes": 10,
+    "MaxKeywordLength": 80,
+    "PreferRichCard": true,
+    "UseOneBotMusicCard": true,
+    "OneBotApiBaseUrl": "http://127.0.0.1:3000"
+  },
+  "GsCore": {
+    "Enabled": true,
+    "BaseUrl": "http://127.0.0.1:8765/",
+    "AutoStartLocalServer": true,
+    "CoreExecutablePath": "D:\\PycharmProjects\\Hime\\GsCore\\.venv\\Scripts\\core.exe",
+    "WorkingDirectory": "D:\\PycharmProjects\\Hime\\GsCore",
+    "StartupTimeoutSeconds": 120,
+    "RequestTimeoutSeconds": 30,
+    "BotId": "onebot",
+    "CommandPrefixes": [
+      "ww",
+      "/ww"
+    ],
+    "OutputDirectory": "data/gscore-output",
+    "MaxMediaMegabytes": 32
+  }
+}

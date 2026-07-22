@@ -1,0 +1,2 @@
+# 本机密钥与仅适用于当前电脑的覆盖配置，不应提交到版本库。
+appsettings.Local.json

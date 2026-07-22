@@ -1,0 +1,93 @@
+// 图片与表情配置：收集、审核、视觉识别、动态多标签和发送范围。
+// 普通聊天图片归档与表情包收集是两条独立流程；自动收集仍只允许 GIF。
+// AnimeTagger 与 StickerTags 已修复为真实绑定本页配置。
+{
+  "Images": {
+    "Directory": "D:\\PycharmProjects\\Hime\\Hime\\resources\\images",
+    "AllowedExtensions": [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".gif",
+      ".webp"
+    ],
+    "IncomingDirectory": "data/chat-images",
+    "MaxDownloadBytes": 20971520,
+    "DownloadConcurrency": 3,
+    "SessionCacheLimit": 2048,
+    "StickerArchiveRetentionDays": 7,
+    "MaxEmotionImagesPerReply": 3,
+    "OnlyUseApprovedStickers": true,
+    "ApprovedStickerFileNames": [
+      "smile.gif"
+    ],
+    "ApprovedStickerDirectories": [
+      "D:\\PycharmProjects\\Hime\\Hime\\resources\\images\\approved"
+    ],
+    "AdditionalDirectories": [
+      "D:\\PycharmProjects\\Hime\\Hime\\resources\\collected-stickers"
+    ],
+    "EmotionMappings": {
+      "happy": "smile.gif"
+    }
+  },
+  "GroupStickers": {
+    "Enabled": true,
+    "CollectionDirectory": "D:\\PycharmProjects\\Hime\\Hime\\resources\\sticker-review",
+    "MinOccurrences": 3,
+    "AutoCollectStickers": true,
+    "AnalysisQueueCapacity": 64,
+    "AllowedExtensions": [
+      ".gif"
+    ],
+    "RequireManualApproval": true,
+    "ReviewRetentionDays": 7,
+    "ReplyProbability": 0.03,
+    "MinReplyIntervalSeconds": 600
+  },
+  "StickerVision": {
+    "Enabled": true,
+    "ModelPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\emotion-ferplus-8.onnx",
+    "ConfidenceThreshold": 0.35,
+    "MaxInspectionBytes": 20971520,
+    "MaxInspectionPixels": 40000000
+  },
+  "OllamaVision": {
+    "Enabled": true,
+    "Endpoint": "http://127.0.0.1:11434",
+    "Model": "qwen3-vl:4b",
+    "TimeoutSeconds": 90,
+    "MaxImagesPerMessage": 1,
+    "MaxImageBytes": 8388608,
+    "MaxDescriptionCharacters": 900
+  },
+  "RecentVisualContext": {
+    "IndexPath": "data/recent-visual-context.json",
+    "RetentionMinutes": 15,
+    "MaxImagesPerMessage": 1
+  },
+  "AnimeTagger": {
+    "Enabled": true,
+    "ModelPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\wd-vit-tagger-v3\\model.onnx",
+    "TagsPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\wd-vit-tagger-v3\\selected_tags.csv",
+    "MinimumModelBytes": 52428800,
+    "TagConfidenceThreshold": 0.3,
+    "MaximumSemanticTags": 6
+  },
+  "StickerTags": {
+    "CatalogPath": "data/sticker-tags.json",
+    "MaxTagsPerSticker": 12,
+    "BackfillBatchSize": 96,
+    "RefreshMinutes": 20,
+    "StrongMatchThreshold": 0.72,
+    "PartialMatchThreshold": 0.55,
+    "NeutralFallbackTags": [
+      "neutral",
+      "calm",
+      "gentle",
+      "expressionless",
+      "quiet"
+    ],
+    "OpenCodeSnapshotPath": "runtime/opencode-sticker-catalog.json"
+  }
+}

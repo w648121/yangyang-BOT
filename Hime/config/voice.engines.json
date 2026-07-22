@@ -1,0 +1,103 @@
+// 语音引擎配置：自动语音、缓存、预热及 GPT-SoVITS、IndexTTS2、RVC 的运行参数。
+// 切换默认语音或调整服务路径、超时、队列时修改本页。
+// 具体声线与参考音频不在本页，请到 voice.profiles.json 修改。
+{
+  "VoiceSynthesis": {
+    "Enabled": true,
+    "RvcRootDirectory": "D:\\PycharmProjects\\Hime\\RVC",
+    "CacheDirectory": "data/voice-cache",
+    "Cache": {
+      "MaximumMegabytes": 2048,
+      "RetentionDays": 30,
+      "MaintenanceIntervalMinutes": 60
+    },
+    "Warmup": {
+      "Enabled": true,
+      "Voice": "yangyang-indextts2-faithful-a",
+      "Text": "今天也请多关照。",
+      "DelaySeconds": 3
+    },
+    "Outbox": {
+      "Enabled": true,
+      "RecoveryScanSeconds": 15,
+      "RecoveryMaximumAgeMinutes": 5,
+      "MaximumAttempts": 5,
+      "InitialRecoveryDelaySeconds": 10
+    },
+    "DefaultVoice": "yangyang-indextts2-faithful-a",
+    "AutoReplyVoiceEnabled": true,
+    "AutoReplyVoice": "yangyang-indextts2-faithful-a",
+    "AutoReplySpeakChineseOnly": true,
+    "AutoReplyQueueCapacity": 8,
+    "AutoReplyMaxQueueAgeSeconds": 30,
+    "TimeoutSeconds": 180,
+    "MaxTextLength": 200,
+    "GptSoVits": {
+      "Enabled": true,
+      "AutoStartLocalServer": false,
+      "BaseUrl": "http://127.0.0.1:9880",
+      "PythonExecutablePath": "D:\\PycharmProjects\\Hime\\tools\\GPT-SoVITS\\runtime\\Scripts\\python.exe",
+      "WorkingDirectory": "D:\\PycharmProjects\\Hime\\tools\\GPT-SoVITS",
+      "ApiScriptPath": "api_v2.py",
+      "TtsConfigPath": "D:\\PycharmProjects\\Hime\\tools\\GPT-SoVITS\\configs\\hime-yangyang-tts.yaml",
+      "StartupTimeoutSeconds": 180,
+      "RequestTimeoutSeconds": 360
+    },
+    "IndexTts": {
+      "Enabled": true,
+      "AutoStartLocalServer": true,
+      "BaseUrl": "http://127.0.0.1:9882",
+      "PythonExecutablePath": "D:\\PycharmProjects\\Hime\\tools\\IndexTTS2\\.venv\\Scripts\\python.exe",
+      "WorkingDirectory": "D:\\PycharmProjects\\Hime\\tools\\IndexTTS2",
+      "ApiScriptPath": "hime_server.py",
+      "ModelDirectory": "checkpoints",
+      "WorkDirectory": "runtime/hime-api",
+      "NumbaCacheDirectory": "D:\\tmp\\hime-numba-cache",
+      "StartupTimeoutSeconds": 240,
+      "RequestTimeoutSeconds": 360
+    },
+    "BaseTts": {
+      "ExecutablePath": "powershell.exe",
+      "Arguments": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "D:\\PycharmProjects\\Hime\\Hime\\scripts\\synthesize.ps1",
+        "-Text",
+        "{text}",
+        "-OutputPath",
+        "{output}",
+        "-Voice",
+        "{voice}",
+        "-Rate",
+        "1",
+        "-Volume",
+        "100"
+      ]
+    },
+    "Rvc": {
+      "ExecutablePath": "D:\\PycharmProjects\\Hime\\RVC\\runtime\\python310\\Scripts\\rvc.exe",
+      "WorkingDirectory": "D:\\PycharmProjects\\Hime\\RVC\\runtime\\rvc-official",
+      "Arguments": [
+        "infer",
+        "-m",
+        "{model}",
+        "-i",
+        "{input}",
+        "-o",
+        "{output}",
+        "-fu",
+        "{pitch}",
+        "-fm",
+        "harvest",
+        "-if",
+        "{index}",
+        "-ir",
+        "0.75",
+        "-rmr",
+        "1.0"
+      ]
+    }
+  }
+}

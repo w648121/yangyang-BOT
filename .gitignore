@@ -1,0 +1,69 @@
+# Visual Studio / .NET 构建输出
+.vs/
+**/.vs/
+**/bin/
+**/obj/
+publish/
+**/*.user
+**/*.suo
+
+# 本机密钥、覆盖配置与历史备份
+**/appsettings.Local.json
+**/appsettings.*.local.json
+**/appsettings.before-*.json
+**/.codex-backups/
+**/*.secrets.json
+.env
+.env.*
+!.env.example
+
+# 日志、数据库、缓存和聊天产生的私有数据
+**/*.log
+**/*.stdout.log
+**/*.stderr.log
+**/*.db
+**/*.db-log
+**/*.db-shm
+**/*.db-wal
+Hime/Data/recent-visual-context.json
+Hime/Data/sticker-management-ids.json
+Hime/Data/sticker-tags.json
+Hime/Data/personas/backups/
+Hime/data/chat-images/
+Hime/data/voice-cache/
+Hime/runtime/
+Hime/logs/
+Hime/personas/interaction-profiles/
+
+# 本机工具状态
+**/.codegraph/
+**/.omo/
+**/.codex/
+**/.openai/
+Hime/.opencode/node_modules/
+
+# 模型、检查点和大型二进制资源
+**/models/
+**/checkpoints/
+**/*.onnx
+**/*.pth
+**/*.pt
+**/*.ckpt
+**/*.safetensors
+**/*.index
+**/*.zip
+**/*.7z
+**/*.whl
+
+# 自动收集的表情、图片和待审核素材
+Hime/resources/images/
+Hime/resources/path/
+Hime/resources/sticker-review/
+
+# 独立第三方项目、本机服务和下载缓存
+downloads/
+tools/
+RVC/
+GsCore/
+XutheringWavesUID-main/
+jst/
