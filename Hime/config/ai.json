@@ -109,6 +109,55 @@
       "不想说"
     ]
   },
+  "DialoguePlanning": {
+    "Enabled": true,
+    "RelationshipContextOnlyWhenRelevant": true,
+    "RelationshipContextMarkers": [
+      "关系",
+      "感情",
+      "喜欢你",
+      "爱你",
+      "在意我",
+      "想我",
+      "告白",
+      "表白",
+      "老婆",
+      "老公",
+      "对象",
+      "恋人",
+      "女朋友",
+      "男朋友",
+      "伴侣",
+      "结婚",
+      "嫁给",
+      "娶你",
+      "约会",
+      "吃醋",
+      "分手"
+    ],
+    "RepairMarkers": [
+      "不是",
+      "不对",
+      "理解错",
+      "说错",
+      "没回答",
+      "答非所问",
+      "重新回答"
+    ],
+    "DistressMarkers": [
+      "难过",
+      "焦虑",
+      "害怕",
+      "委屈",
+      "孤独",
+      "撑不住",
+      "很累",
+      "烦",
+      "失败",
+      "后悔",
+      "不想说"
+    ]
+  },
   "Admin": {
     "Enabled": true,
     "AllowedUserIds": [

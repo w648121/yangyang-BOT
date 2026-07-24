@@ -47,6 +47,7 @@ builder.Services.Configure<AiOptions>(builder.Configuration.GetSection("AI"));
 builder.Services.Configure<BotAccountsOptions>(builder.Configuration.GetSection("BotAccounts"));
 builder.Services.Configure<OpenCodeAgentOptions>(builder.Configuration.GetSection("OpenCodeAgent"));
 builder.Services.Configure<ModelRoutingOptions>(builder.Configuration.GetSection("ModelRouting"));
+builder.Services.Configure<DialoguePlanningOptions>(builder.Configuration.GetSection("DialoguePlanning"));
 builder.Services.Configure<ConversationStyleOptions>(builder.Configuration.GetSection("ConversationStyle"));
 builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection("Admin"));
 builder.Services.Configure<ChatHistoryOptions>(builder.Configuration.GetSection("ChatHistory"));

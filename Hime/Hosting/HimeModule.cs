@@ -97,6 +97,8 @@ public static class HimeModule
         services.AddSingleton<IAiClient>(provider => provider.GetRequiredService<OpenCodeAgentClient>());
         services.AddSingleton<AnthropicChatClientAdapter>();
         services.AddSingleton<ConversationRouter>();
+        services.AddOptions<DialoguePlanningOptions>();
+        services.AddSingleton<SocialTurnCoordinator>();
         services.AddOptions<ConversationStyleOptions>();
         services.AddSingleton<ConversationStyleService>();
         services.AddSingleton<PersonaComplianceService>();

@@ -36,7 +36,7 @@ configurationBuilder.AddJsonFile("appsettings.Local.json", optional: true);
 IConfigurationRoot configuration = configurationBuilder.Build();
 string[] requiredSections =
 [
-    "BotAccounts", "AI", "OpenCodeAgent", "ModelRouting", "Admin", "Personas", "ChatHistory", "RelationshipTrajectory",
+    "BotAccounts", "AI", "OpenCodeAgent", "ModelRouting", "DialoguePlanning", "Admin", "Personas", "ChatHistory", "RelationshipTrajectory",
     "Images", "GroupStickers", "AnimeTagger", "StickerTags", "Gallery", "VoiceSynthesis",
     "OneBot", "Setu", "Music", "GsCore", "MessageDispatch", "ReplyScheduling"
 ];
@@ -907,6 +907,83 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
            assembledText.Contains("这是当前用户的有效消息", StringComparison.Ordinal) &&
            !assembledText.Contains("KFC污染消息", StringComparison.Ordinal),
         "group context must retain speaker identity and exclude external-bot turns");
+
+    var socialTurns = architectureProvider.GetRequiredService<SocialTurnCoordinator>();
+    var ordinarySocialTurn = new TurnContext(
+        Guid.NewGuid().ToString("N"),
+        "qq",
+        "primary",
+        $"test-social-{Guid.NewGuid():N}",
+        $"qq:group:{contextGroupId}",
+        "88001",
+        currentUserId,
+        "当前测试用户",
+        contextGroupId,
+        "今天吃什么好",
+        Array.Empty<string>(),
+        TurnTrigger.ExplicitAi,
+        DateTimeOffset.UtcNow);
+    var ordinarySocialPlan = socialTurns.Build(new SocialTurnRequest(
+        ordinarySocialTurn,
+        88001,
+        "测试群",
+        ordinarySocialTurn.UserText,
+        ordinarySocialTurn.UserText,
+        HimeStyleScene.GroupReply));
+    var ordinarySocialPrompt = string.Join(
+        '\n',
+        ordinarySocialPlan.Messages.Select(message => message.Content));
+    Assert(ordinarySocialPlan.Decision.Act == DialogueAct.Answer &&
+           !ordinarySocialPlan.Decision.IncludeRelationshipContext &&
+           !ordinarySocialPrompt.Contains("<evidence_backed_relationship_plan>", StringComparison.Ordinal),
+        "ordinary questions must not receive the large relationship or marriage policy");
+    Assert(ordinarySocialPrompt.Contains("<active_persona_lock>", StringComparison.Ordinal) &&
+           ordinarySocialPrompt.Contains("这是当前用户的有效消息", StringComparison.Ordinal),
+        "explicit social replies must use the shared persona lock and assembled conversation context");
+
+    var relationshipTurn = ordinarySocialTurn with
+    {
+        TurnId = Guid.NewGuid().ToString("N"),
+        CorrelationId = $"test-relationship-{Guid.NewGuid():N}",
+        SourceMessageId = "88002",
+        UserText = "秧秧做我老婆"
+    };
+    var relationshipSocialPlan = socialTurns.Build(new SocialTurnRequest(
+        relationshipTurn,
+        88002,
+        "测试群",
+        relationshipTurn.UserText,
+        relationshipTurn.UserText,
+        HimeStyleScene.GroupReply));
+    Assert(relationshipSocialPlan.Decision.Act == DialogueAct.Relationship &&
+           relationshipSocialPlan.Decision.IncludeRelationshipContext &&
+           string.Join('\n', relationshipSocialPlan.Messages.Select(message => message.Content))
+               .Contains("<evidence_backed_relationship_plan>", StringComparison.Ordinal),
+        "relationship requests must retain evidence-backed boundaries and continuity");
+
+    var reactiveTurn = ordinarySocialTurn with
+    {
+        TurnId = Guid.NewGuid().ToString("N"),
+        CorrelationId = $"test-reactive-{Guid.NewGuid():N}",
+        SourceMessageId = "88003",
+        UserText = "今天风有点大",
+        Trigger = TurnTrigger.Reactive
+    };
+    var reactiveSocialPlan = socialTurns.Build(new SocialTurnRequest(
+        reactiveTurn,
+        88003,
+        "测试群",
+        reactiveTurn.UserText,
+        reactiveTurn.UserText,
+        HimeStyleScene.GroupReply,
+        RequireEmotionMarker: true));
+    var reactiveSocialPrompt = string.Join(
+        '\n',
+        reactiveSocialPlan.Messages.Select(message => message.Content));
+    Assert(reactiveSocialPlan.Decision.Act == DialogueAct.React &&
+           reactiveSocialPrompt.Contains("这是当前用户的有效消息", StringComparison.Ordinal) &&
+           reactiveSocialPrompt.Contains("End with exactly one supported", StringComparison.Ordinal),
+        "natural group participation must use the same shared context and explicit media contract");
 
     var contextDatabase = architectureProvider.GetRequiredService<HimeDbContext>();
     var turnRecorder = architectureProvider.GetRequiredService<IConversationTurnRecorder>();
