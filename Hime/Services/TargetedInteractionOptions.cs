@@ -8,8 +8,6 @@ public sealed class TargetedInteractionOptions
 {
     public bool Enabled { get; set; }
 
-    public List<long> AllowedGroupIds { get; set; } = [];
-
     public List<long> TargetUserIds { get; set; } = [];
 
     /// <summary>
@@ -51,5 +49,5 @@ public sealed class TargetedInteractionOptions
     /// Markdown file containing aggregated style guidance only. It must not contain raw
     /// chat transcripts or private facts.
     /// </summary>
-    public string StyleProfileFile { get; set; } = "personas/interaction-profiles/group-1095402532-3144819436.md";
+    public string StyleProfileFile { get; set; } = string.Empty;
 }

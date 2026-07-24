@@ -8,8 +8,6 @@ public sealed class ReactiveConversationOptions
 {
     public bool Enabled { get; set; } = true;
 
-    public List<long> AllowedGroupIds { get; set; } = [];
-
     public double BaseReplyProbability { get; set; } = 0.08;
 
     public double QuestionReplyProbability { get; set; } = 0.28;

@@ -15,10 +15,12 @@ using Microsoft.Extensions.Options;
 
 string[] configurationFiles =
 [
+    "config/accounts.json",
     "config/core.json",
     "config/ai.json",
     "config/conversation.json",
     "config/stickers.json",
+    "config/gallery.json",
     "config/voice.engines.json",
     "config/voice.profiles.json",
     "config/integrations.json"
@@ -34,12 +36,86 @@ configurationBuilder.AddJsonFile("appsettings.Local.json", optional: true);
 IConfigurationRoot configuration = configurationBuilder.Build();
 string[] requiredSections =
 [
-    "AI", "OpenCodeAgent", "ModelRouting", "Admin", "Personas", "ChatHistory", "RelationshipTrajectory",
-    "Images", "GroupStickers", "AnimeTagger", "StickerTags", "VoiceSynthesis",
-    "Music", "GsCore", "MessageDispatch", "ReplyScheduling"
+    "BotAccounts", "AI", "OpenCodeAgent", "ModelRouting", "Admin", "Personas", "ChatHistory", "RelationshipTrajectory",
+    "Images", "GroupStickers", "AnimeTagger", "StickerTags", "Gallery", "VoiceSynthesis",
+    "OneBot", "Setu", "Music", "GsCore", "MessageDispatch", "ReplyScheduling"
 ];
 Assert(requiredSections.All(section => configuration.GetSection(section).Exists()),
     "all required modular configuration sections should be present");
+Assert(!configuration.AsEnumerable().Any(item =>
+        item.Key.EndsWith(":AllowedGroupIds", StringComparison.OrdinalIgnoreCase)),
+    "group response authorization must live in LiteDB instead of configuration allow lists");
+
+var botAccounts = configuration.GetSection("BotAccounts").Get<BotAccountsOptions>()
+    ?? throw new InvalidOperationException("BotAccounts configuration did not bind.");
+var enabledBotAccounts = botAccounts.GetEnabledConnections();
+Assert(enabledBotAccounts.Count > 0 && enabledBotAccounts.Count(account => account.IsPrimary) == 1,
+    "bot account configuration should expose one enabled primary connection");
+Assert(new BotAccountsOptions().GetEnabledConnections().Single().Port == 3010,
+    "missing account configuration should preserve the legacy Milky 3010 fallback");
+
+Assert(SetuIntentInterpreter.TryParseDeterministic("来3张萝莉 白丝涩图", 10, out var taggedSetu) &&
+       taggedSetu.Count == 3 &&
+       taggedSetu.Source == SetuSourceMode.Lolicon &&
+       taggedSetu.Tags.Contains("萝莉") &&
+       taggedSetu.Tags.Contains("白丝"),
+    "tagged setu command should parse count and multiple tags");
+Assert(SetuIntentInterpreter.TryParseDeterministic("来三张色图", 10, out var chineseCountSetu) &&
+       chineseCountSetu.Count == 3 &&
+       chineseCountSetu.Source == SetuSourceMode.Lolicon,
+    "Chinese image count should be understood");
+Assert(SetuIntentInterpreter.TryParseDeterministic("随机涩图", 10, out var randomSetu) &&
+       randomSetu.Source == SetuSourceMode.Random,
+    "explicit random request should use DMOE or LoliAPI");
+Assert(SetuIntentInterpreter.TryParseDeterministic("要涩图", 10, out var genericRandomSetu) &&
+       genericRandomSetu.Source == SetuSourceMode.Random,
+    "generic 要涩图 request should use a random provider");
+Assert(SetuIntentInterpreter.TryParseDeterministic("我想看鸣潮的图", 10, out var naturalSetu) &&
+       naturalSetu.Source == SetuSourceMode.Lolicon &&
+       naturalSetu.Tags.Contains("鸣潮"),
+    "natural franchise image request should become a tagged Lolicon request");
+Assert(!SetuIntentInterpreter.TryParseDeterministic("我想看这张图片里的内容", 10, out _),
+    "ordinary visual questions must not trigger the image provider");
+Assert(!SetuIntentInterpreter.TryParseDeterministic("为什么总发涩图", 10, out _),
+    "complaints about prior images must not be treated as a new image request");
+Assert(SetuIntentInterpreter.TryParseDeterministic("来张 R18 涩图", 10, out var rejectedUnsafeSetu) &&
+       rejectedUnsafeSetu.RejectedUnsafe,
+    "R18 image requests must be rejected before any external API call");
+
+var tagRequestUri = SetuApiService.BuildLoliconUri(
+    "https://api.lolicon.app/setu/v2",
+    3,
+    ["萝莉", "白丝"],
+    useKeyword: false).AbsoluteUri;
+Assert(tagRequestUri.Contains("r18=0", StringComparison.Ordinal) &&
+       tagRequestUri.Contains("excludeAI=true", StringComparison.Ordinal) &&
+       tagRequestUri.Contains("size=original", StringComparison.Ordinal) &&
+       tagRequestUri.Split("tag=", StringSplitOptions.None).Length == 3,
+    "Lolicon tag request must enforce SFW, non-AI original images and repeated AND tags");
+var keywordRequestUri = SetuApiService.BuildLoliconUri(
+    "https://api.lolicon.app/setu/v2",
+    3,
+    ["萝莉", "白丝"],
+    useKeyword: true).AbsoluteUri;
+Assert(keywordRequestUri.Contains("keyword=", StringComparison.Ordinal) &&
+       !keywordRequestUri.Contains("tag=", StringComparison.Ordinal),
+    "keyword fallback URI must not retain tag filters");
+
+var fallbackHandler = new QueueHttpMessageHandler(
+    """{"error":"","data":[]}""",
+    """{"error":"","data":[{"pid":123,"title":"test","author":"tester","r18":false,"aiType":0,"tags":["萝莉"],"urls":{"original":"https://example.com/original.png"}}]}""");
+var fallbackApi = new SetuApiService(
+    new SingleHttpClientFactory(new HttpClient(fallbackHandler)),
+    Options.Create(new SetuOptions()),
+    NullLogger<SetuApiService>.Instance);
+var fallbackResult = await fallbackApi.FetchLoliconAsync(1, ["萝莉"]);
+Assert(fallbackResult.MatchMode == "keyword-fallback" &&
+       fallbackResult.Images.Count == 1 &&
+       fallbackHandler.RequestUris.Count == 2 &&
+       fallbackHandler.RequestUris[0].Query.Contains("tag=", StringComparison.Ordinal) &&
+       !fallbackHandler.RequestUris[0].Query.Contains("keyword=", StringComparison.Ordinal) &&
+       fallbackHandler.RequestUris[1].Query.Contains("keyword=", StringComparison.Ordinal),
+    "keyword request must happen only after the tag request returns no acceptable data");
 Assert(configuration["AI:Protocol"] == "OpenAI" &&
        configuration["AI:BaseUrl"] == "https://api.minimaxi.com/v1" &&
        configuration["AI:Model"] == "MiniMax-M3",
@@ -63,6 +139,9 @@ Assert(Path.IsPathRooted(configuredTagger.ModelPath) &&
     "visual tagger settings should come from modular configuration instead of defaults");
 Assert(!configuration.GetSection("VoiceSynthesis:Voices:yangyang-indextts2-faithful-a-original").Exists(),
     "duplicate faithful-a-original voice profile should stay removed");
+Assert(configuration["VoiceSynthesis:IndexTts:BaseUrl"] == "http://127.0.0.1:9892" &&
+       new VoiceSynthesisOptions().IndexTts.BaseUrl == "http://127.0.0.1:9892",
+    "IndexTTS2 must use its dedicated port instead of the enterprise-WeChat occupied 9882 port");
 Assert(!configuration.GetValue<bool>("TargetedInteraction:Enabled"),
     "targeted interaction without configured targets should remain disabled");
 Assert(configuration["Personas:Version"] == "yangyang-v3-dynamic" &&
@@ -70,7 +149,7 @@ Assert(configuration["Personas:Version"] == "yangyang-v3-dynamic" &&
        !configuration.GetValue<bool>("RelationshipTrajectory:ImportLegacyData"),
     "the clean persona generation must use an isolated v3 relationship trajectory without legacy import");
 
-var router = new ConversationRouter(Options.Create(new ModelRoutingOptions
+var router = new ConversationRouter(new TestOptionsMonitor<ModelRoutingOptions>(new ModelRoutingOptions
 {
     Enabled = true,
     UseHighCapabilityForTechnical = true,
@@ -487,6 +566,50 @@ using (var context = new HimeDbContext(databaseName))
 }
 File.Delete(databasePath);
 
+var groupResponseDatabaseName = $"hime-intelligence-check-group-response-{Guid.NewGuid():N}";
+var groupResponseDatabasePath = Path.Combine(AppContext.BaseDirectory, "data", groupResponseDatabaseName + ".db");
+using (var context = new HimeDbContext(groupResponseDatabaseName))
+{
+    var groupResponses = new GroupResponseStateService(context);
+    var responseChat = new ChatService(
+        context,
+        Options.Create(new ChatHistoryOptions
+        {
+            Namespace = "group-response-toggle-test",
+            ImportLegacySessions = false
+        }),
+        personaOptions);
+    responseChat.AppendTurn(
+        31415926,
+        "测试用户",
+        "请记住我的约定",
+        [],
+        "我记住了。",
+        [],
+        assistantEmotion: "calm",
+        groupId: 829269550);
+    Assert(!groupResponses.IsEnabled(829269550),
+        "an unknown group must be disabled by default");
+    groupResponses.SetEnabled(829269550, true, 1928076256, "测试群");
+    Assert(groupResponses.IsEnabled(829269550) &&
+           groupResponses.GetEnabledGroupIds().SequenceEqual([829269550L]),
+        "the response command state must persist in LiteDB");
+    groupResponses.SetEnabled(829269550, false, 1928076256, "测试群");
+    Assert(!groupResponses.IsEnabled(829269550),
+        "stopping a group must persist a disabled state rather than falling back to configuration");
+    groupResponses.SetEnabled(829269550, true, 1928076256, "测试群");
+    var responseHistory = responseChat.GetHistory(31415926, 829269550);
+    Assert(responseHistory.Count == 2 &&
+           responseHistory.Any(message => message.Content.Contains("请记住我的约定", StringComparison.Ordinal)),
+        "stopping and re-enabling a group must never clear its existing AI conversation history");
+}
+File.Delete(groupResponseDatabasePath);
+
+Assert(GroupResponseGateMiddleware.IsControlCommand("/响应") &&
+       GroupResponseGateMiddleware.IsControlCommand(" /停止 ") &&
+       !GroupResponseGateMiddleware.IsControlCommand("/ai 你好"),
+    "only group response control commands should bypass the disabled-group middleware gate");
+
 var inspector = new LocalImageInspector(
     Options.Create(new StickerVisionOptions { Enabled = true }),
     NullLogger<LocalImageInspector>.Instance);
@@ -628,10 +751,45 @@ var emotionalCuratedImages = new ImageService(Options.Create(new ImageOptions
     }
 }), tagCatalog);
 var sadSticker = emotionalCuratedImages.ResolveEmotion("sad");
-Assert(sadSticker == sadCatalogSticker,
+var sadStickerEntry = string.IsNullOrWhiteSpace(sadSticker) ? null : tagCatalog.GetEntry(sadSticker);
+Assert(sadStickerEntry?.EmotionScores.ContainsKey("sad") == true,
     "base emotion pools must resolve from catalog metadata rather than file-name prefixes");
 
+var oversizedStickerDirectory = Path.Combine(
+    Path.GetTempPath(), $"hime-oversized-sticker-{Guid.NewGuid():N}");
+Directory.CreateDirectory(oversizedStickerDirectory);
+var oversizedStickerPath = Path.Combine(oversizedStickerDirectory, "neutral_too_large.gif");
+await using (var oversizedSticker = File.Create(oversizedStickerPath))
+    oversizedSticker.SetLength(256 * 1024);
+tagCatalog.Upsert(oversizedStickerPath, "neutral", ["expressionless"]);
+var guardedImages = new ImageService(Options.Create(new ImageOptions
+{
+    Directory = oversizedStickerDirectory,
+    AdditionalDirectories = [],
+    OnlyUseApprovedStickers = true,
+    ApprovedStickerDirectories = [oversizedStickerDirectory],
+    MaxSendableStickerBytes = 128 * 1024
+}), tagCatalog);
+Assert(guardedImages.AvailableImages.Count == 0 &&
+       !guardedImages.IsApprovedStickerPath(oversizedStickerPath),
+    "oversized approved GIFs must never enter the sendable sticker catalog");
+Directory.Delete(oversizedStickerDirectory, recursive: true);
+
 File.Delete(stickerCatalogPath);
+
+var buildSections = typeof(HelpCommand).GetMethod(
+    "BuildSections", BindingFlags.NonPublic | BindingFlags.Static)
+    ?? throw new InvalidOperationException("HelpCommand.BuildSections should exist");
+var helpSections = buildSections.Invoke(null, null)
+    ?? throw new InvalidOperationException("Help sections should be generated");
+var helpRenderer = typeof(HelpCommand).Assembly.GetType("Hime.Commands.HelpMenuRenderer")
+    ?? throw new InvalidOperationException("HelpMenuRenderer should exist");
+var renderHelp = helpRenderer.GetMethod("Render", BindingFlags.Public | BindingFlags.Static)
+    ?? throw new InvalidOperationException("HelpMenuRenderer.Render should exist");
+var renderedHelpPath = renderHelp.Invoke(null, [helpSections]) as string;
+Assert(renderedHelpPath is not null && File.Exists(renderedHelpPath) &&
+       new FileInfo(renderedHelpPath).Length > 10 * 1024,
+    "adaptive cyberpunk help menu should render to a non-empty cached PNG");
 
 var commandServices = new ServiceCollection();
 commandServices.AddSingleton<ProbeCommandHandler>();
@@ -665,12 +823,27 @@ Assert(claimedWait?.Id == "hard-2" &&
 Assert((await interactionManager.GetSoftExpectationsAsync("qq:private:100")).Single().Id == "soft-1",
     "soft conversational expectations must coexist without consuming a hard wait");
 
+var fixedMemoryNow = new DateTimeOffset(2026, 7, 23, 6, 0, 0, TimeSpan.Zero);
+Assert(MemoryTimeRangeParser.TryParse("你还记得三天前我们聊过什么吗？", out var threeDayRange, fixedMemoryNow) &&
+       threeDayRange.StartUtc == new DateTime(2026, 7, 19, 16, 0, 0, DateTimeKind.Utc) &&
+       threeDayRange.EndUtcExclusive == new DateTime(2026, 7, 20, 16, 0, 0, DateTimeKind.Utc),
+    "Chinese relative-day lookup must use Beijing natural-day boundaries");
+Assert(MemoryTimeRangeParser.TryParse("上周我们说过什么", out var lastWeekRange, fixedMemoryNow) &&
+       lastWeekRange.StartUtc == new DateTime(2026, 7, 12, 16, 0, 0, DateTimeKind.Utc) &&
+       lastWeekRange.EndUtcExclusive == new DateTime(2026, 7, 19, 16, 0, 0, DateTimeKind.Utc),
+    "last-week lookup must cover the previous Beijing Monday-to-Monday range");
+Assert(MemoryTimeRangeParser.TryParse("一个月前的事情", out var monthRange, fixedMemoryNow) &&
+       monthRange.Label == "1个月前",
+    "Chinese month offsets must be recognized");
+
 var architectureServices = new ServiceCollection();
 architectureServices.AddLogging();
 architectureServices.AddHttpClient();
 architectureServices.AddHimeData();
 architectureServices.AddSingleton<HimeBotService>();
 architectureServices.AddSingleton<IGroupMessageSender>(provider =>
+    provider.GetRequiredService<HimeBotService>());
+architectureServices.AddSingleton<IAccountMessageSender>(provider =>
     provider.GetRequiredService<HimeBotService>());
 await using (var architectureProvider = architectureServices.BuildServiceProvider(
                  new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true }))
@@ -694,6 +867,173 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
         "LiteDB interaction store should persist and reload active waits");
     Assert(await persistentInteractions.CancelAsync(persistentScope) == 1,
         "LiteDB interaction state should be removable after completion");
+
+    var participantProfiles = architectureProvider.GetRequiredService<ParticipantIdentityService>();
+    var contextChat = architectureProvider.GetRequiredService<IChatService>();
+    var contextAssembler = architectureProvider.GetRequiredService<ConversationContextAssembler>();
+    var personaState = architectureProvider.GetRequiredService<IPersonaStateService>();
+    var groupResponses = architectureProvider.GetRequiredService<GroupResponseStateService>();
+    var contextGroupId = Math.Abs(Random.Shared.NextInt64(1_000_000_000, 8_000_000_000));
+    var currentUserId = Math.Abs(Random.Shared.NextInt64(1_000_000_000, 8_000_000_000));
+    var externalBotId = Math.Abs(Random.Shared.NextInt64(1_000_000_000, 8_000_000_000));
+    participantProfiles.SetKind("qq", externalBotId, ParticipantKind.ExternalBot, "test");
+    contextChat.AppendTurn(
+        externalBotId,
+        "测试外部机器人",
+        "KFC污染消息",
+        [],
+        "不应进入当前用户上下文",
+        [],
+        null,
+        contextGroupId);
+    contextChat.AppendTurn(
+        currentUserId,
+        "当前测试用户",
+        "这是当前用户的有效消息",
+        [],
+        "这是对应回复",
+        [],
+        null,
+        contextGroupId);
+    var assembled = contextAssembler.Build(
+        currentUserId,
+        "当前测试用户",
+        contextGroupId,
+        "还记得吗");
+    var assembledText = string.Join('\n', assembled.Messages.Select(message => message.Content));
+    Assert(assembled.Messages.Count == 1 &&
+           assembled.Messages[0].Role == "system" &&
+           assembledText.Contains($"qq={currentUserId}", StringComparison.Ordinal) &&
+           assembledText.Contains("这是当前用户的有效消息", StringComparison.Ordinal) &&
+           !assembledText.Contains("KFC污染消息", StringComparison.Ordinal),
+        "group context must retain speaker identity and exclude external-bot turns");
+
+    var contextDatabase = architectureProvider.GetRequiredService<HimeDbContext>();
+    var sessions = contextDatabase.Database.GetCollection<ChatSession>("chat_sessions");
+    var contextSession = sessions.FindOne(session => session.GroupId == contextGroupId)
+        ?? throw new InvalidOperationException("context test session was not persisted");
+    contextSession.Messages.AddRange(
+    [
+        new ChatMessage
+        {
+            Role = "user",
+            UserId = currentUserId,
+            Nickname = "当前测试用户",
+            GroupId = contextGroupId,
+            Content = "前天我们确认了近期原始消息也必须参与时间检索",
+            Time = AtBeijingDaysAgo(2)
+        },
+        new ChatMessage
+        {
+            Role = "user",
+            UserId = currentUserId,
+            Nickname = "当前测试用户",
+            GroupId = contextGroupId,
+            Content = "三天前我们讨论了长期记忆检索的时间边界",
+            Time = AtBeijingDaysAgo(3)
+        },
+        new ChatMessage
+        {
+            Role = "user",
+            UserId = currentUserId,
+            Nickname = "当前测试用户",
+            GroupId = contextGroupId,
+            Content = "七天前我们讨论了多平台适配器",
+            Time = AtBeijingDaysAgo(7)
+        },
+        new ChatMessage
+        {
+            Role = "user",
+            UserId = currentUserId,
+            Nickname = "当前测试用户",
+            GroupId = contextGroupId,
+            Content = "三十天前我们决定保留模块化单体架构",
+            Time = AtBeijingDaysAgo(30)
+        }
+    ]);
+    sessions.Upsert(contextSession);
+
+    var memories = contextDatabase.Database.GetCollection<LongTermMemoryRecord>("long_term_memories");
+    var isolationGroupId = contextGroupId + 1;
+    memories.Upsert(new LongTermMemoryRecord
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        SessionId = $"default:g:{isolationGroupId}",
+        GroupId = isolationGroupId,
+        UserId = currentUserId,
+        Nickname = "当前测试用户",
+        Content = "三天前另一个群的秘密内容",
+        OccurredAtUtc = AtBeijingDaysAgo(3)
+    });
+    memories.Upsert(new LongTermMemoryRecord
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        SessionId = $"default:p:{currentUserId + 1}",
+        GroupId = null,
+        UserId = currentUserId + 1,
+        Nickname = "其他私聊用户",
+        Content = "三天前其他私聊用户的秘密内容",
+        OccurredAtUtc = AtBeijingDaysAgo(3)
+    });
+
+    var threeDayContext = string.Join('\n', contextAssembler
+        .Build(currentUserId, "当前测试用户", contextGroupId, "你还记得三天前我们聊过什么吗？")
+        .Messages.Select(message => message.Content));
+    Assert(threeDayContext.Contains("长期记忆检索的时间边界", StringComparison.Ordinal) &&
+           !threeDayContext.Contains("近期原始消息也必须参与时间检索", StringComparison.Ordinal) &&
+           !threeDayContext.Contains("多平台适配器", StringComparison.Ordinal) &&
+           !threeDayContext.Contains("模块化单体架构", StringComparison.Ordinal) &&
+           !threeDayContext.Contains("另一个群的秘密内容", StringComparison.Ordinal),
+        "three-day recall must select only the requested Beijing day and preserve group isolation");
+
+    var recentRawContext = string.Join('\n', contextAssembler
+        .Build(currentUserId, "当前测试用户", contextGroupId, "前天我们聊过什么？")
+        .Messages.Select(message => message.Content));
+    Assert(recentRawContext.Contains("近期原始消息也必须参与时间检索", StringComparison.Ordinal) &&
+           !recentRawContext.Contains("长期记忆检索的时间边界", StringComparison.Ordinal),
+        "time lookup must search recent raw messages and archived memories through one path");
+
+    var sevenDayContext = string.Join('\n', contextAssembler
+        .Build(currentUserId, "当前测试用户", contextGroupId, "七天前我们聊过什么？")
+        .Messages.Select(message => message.Content));
+    Assert(sevenDayContext.Contains("多平台适配器", StringComparison.Ordinal) &&
+           !sevenDayContext.Contains("长期记忆检索的时间边界", StringComparison.Ordinal),
+        "seven-day recall must retrieve the matching archived memory without recent-memory leakage");
+
+    var thirtyDayContext = string.Join('\n', contextAssembler
+        .Build(currentUserId, "当前测试用户", contextGroupId, "三十天前我们聊过什么？")
+        .Messages.Select(message => message.Content));
+    Assert(thirtyDayContext.Contains("模块化单体架构", StringComparison.Ordinal) &&
+           !thirtyDayContext.Contains("多平台适配器", StringComparison.Ordinal),
+        "thirty-day recall must retrieve memories beyond the compact summary window");
+
+    Assert(personaState.CaptureExplicitFacts(
+               currentUserId,
+               contextGroupId,
+               "我晚上6点下班。对个暗号，我说天王盖地虎，你说啊对对对") == 2,
+        "deterministic memory capture should recognize work time and call-response agreements");
+    var explicitMemory = personaState.BuildPromptContext(
+        currentUserId,
+        "当前测试用户",
+        contextGroupId,
+        "测试群");
+    Assert(explicitMemory.Contains("18点00分", StringComparison.Ordinal) &&
+           explicitMemory.Contains("天王盖地虎", StringComparison.Ordinal) &&
+           explicitMemory.Contains("啊对对对", StringComparison.Ordinal),
+        "confirmed explicit facts must be present in the authoritative persona context");
+
+    groupResponses.SetEnabled(contextGroupId, true, currentUserId, "测试群", "test");
+    var responseLease = groupResponses.TryCapture(contextGroupId);
+    Assert(responseLease.HasValue && groupResponses.CanDeliver(responseLease.Value),
+        "an enabled group should issue a deliverable response generation lease");
+    groupResponses.SetEnabled(contextGroupId, false, currentUserId, "测试群", "test");
+    groupResponses.SetEnabled(contextGroupId, true, currentUserId, "测试群", "test");
+    Assert(!groupResponses.CanDeliver(responseLease!.Value),
+        "stop and re-enable must not revive work from an older response generation");
+    contextChat.Clear(currentUserId, contextGroupId);
+    memories.DeleteMany(memory =>
+        memory.GroupId == isolationGroupId ||
+        (memory.GroupId == null && memory.UserId == currentUserId + 1));
 }
 
 Console.WriteLine("PASS: intelligence routing, context limits, and local vision checks");
@@ -702,6 +1042,17 @@ static void Assert(bool condition, string message)
 {
     if (!condition)
         throw new InvalidOperationException(message);
+}
+
+static DateTime AtBeijingDaysAgo(int days)
+{
+    var beijingNow = TimeZoneInfo.ConvertTime(
+        DateTimeOffset.UtcNow,
+        MemoryTimeRangeParser.BeijingTimeZone);
+    var local = DateTime.SpecifyKind(
+        beijingNow.Date.AddDays(-days),
+        DateTimeKind.Unspecified);
+    return TimeZoneInfo.ConvertTimeToUtc(local, MemoryTimeRangeParser.BeijingTimeZone);
 }
 
 file sealed class TestOptionsMonitor<T>(T value) : IOptionsMonitor<T>
@@ -719,6 +1070,30 @@ file sealed class TestAiClient(string response = "") : IAiClient
         CancellationToken ct = default,
         bool applyBoundPersona = true,
         AiRequestProfile? requestProfile = null) => Task.FromResult(response);
+}
+
+file sealed class SingleHttpClientFactory(HttpClient client) : IHttpClientFactory
+{
+    public HttpClient CreateClient(string name) => client;
+}
+
+file sealed class QueueHttpMessageHandler(params string[] responses) : HttpMessageHandler
+{
+    private readonly Queue<string> _responses = new(responses);
+
+    public List<Uri> RequestUris { get; } = [];
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        RequestUris.Add(request.RequestUri ?? throw new InvalidOperationException("Request URI is required"));
+        var payload = _responses.Count > 0 ? _responses.Dequeue() : "{\"error\":\"no test response\",\"data\":[]}";
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json")
+        });
+    }
 }
 
 file sealed record ProbeCommand(string Value) : ICommand;

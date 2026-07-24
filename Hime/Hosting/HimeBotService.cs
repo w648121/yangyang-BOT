@@ -1,5 +1,6 @@
 using Hime.Commands;
 using Hime.Data.Services;
+using Hime.Jobs;
 using Hime.Messaging;
 using Hime.Messaging.Interactions;
 using Hime.Services;
@@ -19,10 +20,9 @@ namespace Hime.Hosting;
 /// <summary>
 /// Hime 机器人后台服务 - 持有 SoraService 的生命周期
 /// </summary>
-public class HimeBotService : BackgroundService, IGroupMessageSender
+public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMessageSender
 {
     private readonly ILogger<HimeBotService> _logger;
-    private readonly IServiceProvider _services;
     private readonly IncomingImageStore _incomingImageStore;
     private readonly RecentVisualContextStore _recentVisualContexts;
     private readonly GroupStickerCollector _stickerCollector;
@@ -33,6 +33,9 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
     private readonly PrivateConversationOptions _privateConversations;
     private readonly ImplicitAddressDetector _implicitAddressDetector;
     private readonly MusicCommand _musicCommand;
+    private readonly SetuIntentInterpreter _setuIntentInterpreter;
+    private readonly JobRequestService _jobRequests;
+    private readonly TemporalAnchorService _temporalAnchors;
     private readonly GsCoreBridgeService _gsCoreBridge;
     private readonly ConversationMessageDispatcher _messageDispatcher;
     private readonly MessageDeduplicationService _messageDeduplication;
@@ -41,14 +44,15 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
     private readonly MessageCoordinator _messageCoordinator;
     private readonly ICommandBus _commandBus;
     private readonly IInteractionManager _interactions;
+    private readonly BotAccountsOptions _botAccounts;
+    private readonly MessageCommandRouter _messageCommands;
     private readonly object _privateBatchSync = new();
-    private readonly Dictionary<long, PendingPrivateConversation> _pendingPrivateConversations = [];
+    private readonly Dictionary<PrivateConversationKey, PendingPrivateConversation> _pendingPrivateConversations = [];
     private readonly CancellationTokenSource _privateBatchStop = new();
-    private SoraService? _soraService;
+    private readonly List<ConnectedBotAccount> _connectedAccounts = [];
 
     public HimeBotService(
         ILogger<HimeBotService> logger,
-        IServiceProvider services,
         IncomingImageStore incomingImageStore,
         RecentVisualContextStore recentVisualContexts,
         GroupStickerCollector stickerCollector,
@@ -59,6 +63,9 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         IOptions<PrivateConversationOptions> privateConversations,
         ImplicitAddressDetector implicitAddressDetector,
         MusicCommand musicCommand,
+        SetuIntentInterpreter setuIntentInterpreter,
+        JobRequestService jobRequests,
+        TemporalAnchorService temporalAnchors,
         GsCoreBridgeService gsCoreBridge,
         ConversationMessageDispatcher messageDispatcher,
         MessageDeduplicationService messageDeduplication,
@@ -66,10 +73,11 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         ISoraMessageAdapter soraMessageAdapter,
         MessageCoordinator messageCoordinator,
         ICommandBus commandBus,
-        IInteractionManager interactions)
+        IInteractionManager interactions,
+        IOptions<BotAccountsOptions> botAccounts,
+        MessageCommandRouter messageCommands)
     {
         _logger = logger;
-        _services = services;
         _incomingImageStore = incomingImageStore;
         _recentVisualContexts = recentVisualContexts;
         _stickerCollector = stickerCollector;
@@ -80,6 +88,9 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         _privateConversations = privateConversations.Value;
         _implicitAddressDetector = implicitAddressDetector;
         _musicCommand = musicCommand;
+        _setuIntentInterpreter = setuIntentInterpreter;
+        _jobRequests = jobRequests;
+        _temporalAnchors = temporalAnchors;
         _gsCoreBridge = gsCoreBridge;
         _messageDispatcher = messageDispatcher;
         _messageDeduplication = messageDeduplication;
@@ -88,20 +99,36 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         _messageCoordinator = messageCoordinator;
         _commandBus = commandBus;
         _interactions = interactions;
+        _botAccounts = botAccounts.Value;
+        _messageCommands = messageCommands;
     }
 
-    public bool IsReady => _soraService is not null;
+    public bool IsReady => _connectedAccounts.Count > 0;
 
-    public override Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _privateBatchStop.Cancel();
-        return base.StopAsync(cancellationToken);
+        foreach (var account in _connectedAccounts.AsEnumerable().Reverse())
+        {
+            try
+            {
+                await account.Service.StopAsync(cancellationToken);
+                await account.Service.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to stop bot account {AccountId}", account.Options.Id);
+            }
+        }
+
+        _connectedAccounts.Clear();
+        await base.StopAsync(cancellationToken);
     }
 
     public async Task SendGroupTextAsync(long groupId, string text, CancellationToken cancellationToken = default)
     {
         using var operation = _diagnostics.Begin("reply.send.text");
-        var api = _soraService?.GetApi()
+        var api = GetPrimaryAccount().Service.GetApi()
             ?? throw new InvalidOperationException("Sora 服务尚未连接，不能发送主动消息。");
         try
         {
@@ -122,7 +149,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         CancellationToken cancellationToken = default)
     {
         using var operation = _diagnostics.Begin("reply.send.image");
-        var api = _soraService?.GetApi()
+        var api = GetPrimaryAccount().Service.GetApi()
             ?? throw new InvalidOperationException("Sora 服务尚未连接，不能发送主动消息。");
         var fileUri = new Uri(Path.GetFullPath(localPath)).AbsoluteUri;
         var message = new MessageBody().AddImage(fileUri, subType);
@@ -143,7 +170,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         if (!File.Exists(localPath))
             throw new FileNotFoundException("主动语音文件不存在。", localPath);
 
-        var api = _soraService?.GetApi()
+        var api = GetPrimaryAccount().Service.GetApi()
             ?? throw new InvalidOperationException("Sora 服务尚未连接，不能发送主动消息。");
         var message = new MessageBody().AddAudio(new Uri(Path.GetFullPath(localPath)).AbsoluteUri);
         await api.SendGroupMessageAsync(groupId, message, cancellationToken);
@@ -154,45 +181,124 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         if (!File.Exists(localPath))
             throw new FileNotFoundException("Private voice file does not exist.", localPath);
 
-        var api = _soraService?.GetApi()
+        var api = GetPrimaryAccount().Service.GetApi()
             ?? throw new InvalidOperationException("Sora is not connected; private voice cannot be sent.");
         var message = new MessageBody().AddAudio(new Uri(Path.GetFullPath(localPath)).AbsoluteUri);
         await api.SendFriendMessageAsync(userId, message, cancellationToken);
     }
 
+    public bool IsAccountReady(string accountId) =>
+        _connectedAccounts.Any(account =>
+            account.Options.Id.Equals(accountId, StringComparison.OrdinalIgnoreCase) &&
+            account.Service.GetApi() is not null);
+
+    public async Task SendTextAsync(
+        string accountId,
+        bool isGroup,
+        long targetId,
+        long? mentionUserId,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        var account = GetAccount(accountId);
+        var api = account.Service.GetApi()
+            ?? throw new InvalidOperationException($"Bot account {accountId} is not connected.");
+        if (isGroup)
+        {
+            var body = new MessageBody();
+            if (mentionUserId is > 0)
+                body.AddMention(mentionUserId.Value).AddText($" {text}");
+            else
+                body.AddText(text);
+            await api.SendGroupMessageAsync(targetId, body, cancellationToken);
+        }
+        else
+        {
+            await api.SendFriendMessageAsync(targetId, new MessageBody(text), cancellationToken);
+        }
+    }
+
+    private ConnectedBotAccount GetAccount(string accountId)
+    {
+        var normalized = string.IsNullOrWhiteSpace(accountId) ? "primary" : accountId.Trim();
+        return _connectedAccounts.FirstOrDefault(account =>
+                   account.Options.Id.Equals(normalized, StringComparison.OrdinalIgnoreCase))
+               ?? throw new InvalidOperationException($"Bot account {normalized} is not connected.");
+    }
+
+    private ConnectedBotAccount GetPrimaryAccount()
+    {
+        if (_connectedAccounts.Count == 0)
+            throw new InvalidOperationException("No bot account is connected; an active message cannot be sent.");
+
+        return _connectedAccounts.FirstOrDefault(account => account.Options.IsPrimary)
+            ?? _connectedAccounts[0];
+    }
+
     protected override async Task<Task> ExecuteAsync(CancellationToken stoppingToken)
     {
+        var accounts = _botAccounts.GetEnabledConnections();
+        var duplicateIds = accounts
+            .GroupBy(account => account.Id, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        if (duplicateIds.Length > 0)
+            throw new InvalidOperationException($"Bot account Id values must be unique: {string.Join(", ", duplicateIds)}");
+
+        foreach (var account in accounts.OrderByDescending(connection => connection.IsPrimary))
+        {
+            try
+            {
+                await ConnectAccountAsync(account, stoppingToken);
+            }
+            catch (Exception ex) when (accounts.Count > 1)
+            {
+                _logger.LogError(
+                    ex,
+                    "Bot account {AccountId} failed to start; the remaining accounts will continue",
+                    account.Id);
+            }
+        }
+
+        if (_connectedAccounts.Count == 0)
+            throw new InvalidOperationException("No enabled bot account could be connected.");
+
+        _logger.LogInformation(
+            "Hime bot transport started with {AccountCount} account(s); primary account is {PrimaryAccountId}",
+            _connectedAccounts.Count,
+            GetPrimaryAccount().Options.Id);
+        return Task.CompletedTask;
+    }
+
+    private async Task ConnectAccountAsync(
+        BotAccountConnectionOptions account,
+        CancellationToken stoppingToken)
+    {
         // 创建 Milky 协议服务 - 通过 LLBot 提供的 SSE /event 端点接收事件
-        _soraService = SoraServiceFactory.Instance.CreateMilkyService(
+        var soraService = SoraServiceFactory.Instance.CreateMilkyService(
             new MilkyConfig
             {
-                Host = "127.0.0.1",
-                Port = 3010,
-                AccessToken = "",
+                Host = account.Host,
+                Port = account.Port,
+                AccessToken = account.AccessToken,
                 EventTransport = Sora.Adapter.Milky.EventTransport.Sse,
                 MinimumLogLevel =  LogLevel.Information
             });
 
         // 订阅消息接收事件（同时处理日志输出和 @提及 触发 AI 对话）
-        _soraService.Events.OnMessageReceived += OnMessageReceived;
-
-        // 注册需要 DI 注入的命令实例（必须在 ScanAssembly 之前）
-        _soraService.Commands.RegisterCommandInstance(_services.GetRequiredService<AdminCommand>());
-        _soraService.Commands.RegisterCommandInstance(_services.GetRequiredService<StickerCommand>());
-        _soraService.Commands.RegisterCommandInstance(_services.GetRequiredService<AiCommand>());
-        _soraService.Commands.RegisterCommandInstance(_services.GetRequiredService<VoiceCommand>());
-        _soraService.Commands.RegisterCommandInstance(_services.GetRequiredService<MusicCommand>());
-        _soraService.Commands.RegisterCommandInstance(_services.GetRequiredService<UpdateLogCommand>());
-        _soraService.Commands.RegisterCommandInstance(_services.GetRequiredService<HelpCommand>());
-
-        // 扫描当前程序集，自动注册所有 [CommandGroup] / [Command] 标记的指令
-        _soraService.Commands.ScanAssembly(typeof(Program).Assembly);
+        soraService.Events.OnMessageReceived += e => OnMessageReceived(account.Id, e);
 
         // 关键：显式调用 StartAsync 才会真正发起 SSE 连接 + 注册事件订阅
-        await _soraService.StartAsync(stoppingToken);
+        await soraService.StartAsync(stoppingToken);
+        _connectedAccounts.Add(new ConnectedBotAccount(account, soraService));
 
-        _logger.LogInformation("Hime 机器人服务已启动，通过 SSE 连入 127.0.0.1:3010");
-        return Task.CompletedTask;
+        _logger.LogInformation(
+            "Connected bot account {AccountId} ({DisplayName}) to Milky {Host}:{Port}",
+            account.Id,
+            account.DisplayName,
+            account.Host,
+            account.Port);
     }
 
     /// <summary>
@@ -200,10 +306,19 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
     ///   1. 把聊天内容打印到控制台（不影响命令执行）
     ///   2. 群聊中 @机器人 且不含 /ai 前缀时，直接触发 AI 对话
     /// </summary>
-    private async ValueTask OnMessageReceived(MessageReceivedEvent e)
+    private async ValueTask OnMessageReceived(string accountId, MessageReceivedEvent e)
     {
-        var message = _soraMessageAdapter.Adapt(e);
+        var message = _soraMessageAdapter.Adapt(e, accountId);
         var sourceScope = message.ScopeKey;
+        // When several bot accounts share a group, an explicit mention belongs to
+        // exactly one account. A non-target account must not claim and deduplicate it
+        // before the mentioned account can enter the unique business pipeline.
+        if (message.HasAnyMention && !message.MentionsSelf)
+        {
+            _diagnostics.Increment("messages.foreign_mention");
+            return;
+        }
+
         var eventKey = $"{message.ScopeKey}:message:{message.MessageId}";
         if (!_messageDeduplication.TryAccept(eventKey))
         {
@@ -230,7 +345,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
                         message,
                         (context, token) => _commandBus.SendAsync(
                             new DispatchLegacyMessageCommand(
-                                innerToken => ProcessMessageAsync(e, context.Message, innerToken)),
+                                innerToken => ProcessAcceptedMessageAsync(e, context.Message, innerToken)),
                             token),
                         cancellationToken);
                     _diagnostics.Increment("messages.completed");
@@ -243,6 +358,17 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
             });
     }
 
+    private async Task ProcessAcceptedMessageAsync(
+        MessageReceivedEvent e,
+        IncomingMessage incoming,
+        CancellationToken cancellationToken)
+    {
+        if (await _messageCommands.TryRouteAsync(incoming, incoming.Text, cancellationToken))
+            return;
+
+        await ProcessMessageAsync(e, incoming, cancellationToken);
+    }
+
     private async Task ProcessMessageAsync(
         MessageReceivedEvent e,
         IncomingMessage incoming,
@@ -253,6 +379,18 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         var isAtBot = incoming.MentionsSelf;
         var hasAnyMention = incoming.HasAnyMention;
         var containsVisual = incoming.ContainsVisual;
+        var isPotentialJobRequest = _jobRequests.IsPotentialRequest(incoming);
+        if (!isPotentialJobRequest)
+        {
+            try
+            {
+                _temporalAnchors.ObserveExplicitStatement(incoming);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to observe an explicit temporal event statement");
+            }
+        }
 
         // Explicit ww commands are handled by the local GsCore feature service.
         // Returning here keeps Hime as the only QQ sender and prevents its normal
@@ -265,13 +403,25 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
             return;
         }
 
+        SetuRequest? deterministicSetuRequest = null;
+        if (_setuIntentInterpreter.TryParseDeterministic(
+                rawMessageText,
+                out var parsedSetuRequest))
+        {
+            deterministicSetuRequest = parsedSetuRequest;
+        }
+        var isPotentialSetuRequest = deterministicSetuRequest is not null ||
+                                    _setuIntentInterpreter.IsPotentialSemanticRequest(rawMessageText);
+
         var isTargetedInteractionUser = _targetedInteractions.IsConfiguredTarget(e);
-        var isImplicitlyAddressed = await _implicitAddressDetector.IsAddressedToBotAsync(
-            e,
-            rawMessageText,
-            isAtBot,
-            hasAnyMention,
-            cancellationToken);
+        var isImplicitlyAddressed = deterministicSetuRequest is null &&
+                                    !isPotentialJobRequest &&
+                                    await _implicitAddressDetector.IsAddressedToBotAsync(
+                                        e,
+                                        rawMessageText,
+                                        isAtBot,
+                                        hasAnyMention,
+                                        cancellationToken);
         var isBotDirected = isAtBot || isImplicitlyAddressed;
 
         // A QQ quote/reply card does not carry the original ImageSegment in the
@@ -315,7 +465,11 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
             {
                 // A configured target is handled by TargetedInteractionService instead, so
                 // a random sticker cannot consume the event or create a duplicate response.
-                var allowRandomStickerReply = !isTargetedInteractionUser && !isBotDirected && !rawMessageText.TrimStart().StartsWith('/');
+                var allowRandomStickerReply = !isTargetedInteractionUser &&
+                                              !isBotDirected &&
+                                              !isPotentialSetuRequest &&
+                                              !isPotentialJobRequest &&
+                                              !rawMessageText.TrimStart().StartsWith('/');
                 stickerResult = await _stickerCollector.ProcessAsync(e, allowRandomStickerReply, cancellationToken);
             }
             catch (Exception ex)
@@ -391,6 +545,33 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
 
         // 群专用的轻度接话/吐槽。它只会在显式允许的群和 QQ 号上运行，
         // 并避开命令、@ 机器人消息及已经发送随机表情的消息。
+        // Reminder requests are consumed before image, music, targeted-chat and
+        // reactive-chat handlers. One incoming event produces one acknowledgement.
+        if (isPotentialJobRequest &&
+            await _jobRequests.TryHandleNaturalAsync(incoming, cancellationToken))
+        {
+            return;
+        }
+
+        var setuRequest = deterministicSetuRequest;
+        if (setuRequest is null && (isBotDirected || isPotentialSetuRequest))
+        {
+            var setuSenderId = e.Sender?.UserId ?? e.Message.SenderId;
+            setuRequest = await _setuIntentInterpreter.InterpretSemanticAsync(
+                rawMessageText,
+                setuSenderId,
+                cancellationToken);
+        }
+        if (setuRequest is not null)
+        {
+            await _commandBus.SendAsync(
+                new SendSetuRequestCommand(e, setuRequest),
+                cancellationToken);
+            if (e.Message.SourceType == MessageSourceType.Group)
+                _groupActivities.RecordBotReply(e.Message.GroupId, "[二次元图片合并转发]");
+            return;
+        }
+
         // Natural song request, for example: @Hime 播放 伯虎说. It is intentionally
         // handled before AI chat so the request produces a music card instead of prose.
         // Some QQ relationship badges preserve the visible @ text but do not expose the
@@ -483,7 +664,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
                     }
                     else if (!string.IsNullOrWhiteSpace(privatePrompt) || containsVisual)
                     {
-                        QueuePrivateConversation(e, senderId, privatePrompt, containsVisual);
+                        QueuePrivateConversation(incoming.AccountId, e, senderId, privatePrompt, containsVisual);
                     }
                     else
                     {
@@ -548,20 +729,22 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
     /// separate model call for every incoming event.
     /// </summary>
     private void QueuePrivateConversation(
+        string accountId,
         MessageReceivedEvent message,
         long userId,
         string rawText,
         bool containsVisual)
     {
+        var conversationKey = new PrivateConversationKey(accountId, userId);
         PendingPrivateConversation queue;
         var startWorker = false;
         var maximum = Math.Clamp(_privateConversations.MaxMergedMessages, 1, 20);
         lock (_privateBatchSync)
         {
-            if (!_pendingPrivateConversations.TryGetValue(userId, out queue!))
+            if (!_pendingPrivateConversations.TryGetValue(conversationKey, out queue!))
             {
                 queue = new PendingPrivateConversation();
-                _pendingPrivateConversations[userId] = queue;
+                _pendingPrivateConversations[conversationKey] = queue;
             }
 
             queue.Messages.Add(new PendingPrivateMessage(message, rawText, containsVisual));
@@ -581,11 +764,11 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
             userId,
             containsVisual);
         if (startWorker)
-            _ = ProcessPrivateConversationAsync(userId, queue, _privateBatchStop.Token);
+            _ = ProcessPrivateConversationAsync(conversationKey, queue, _privateBatchStop.Token);
     }
 
     private async Task ProcessPrivateConversationAsync(
-        long userId,
+        PrivateConversationKey conversationKey,
         PendingPrivateConversation queue,
         CancellationToken cancellationToken)
     {
@@ -629,7 +812,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
                 {
                     _logger.LogInformation(
                         "Routing merged private conversation to AI (UserId={UserId}, Messages={MessageCount}, Visuals={VisualCount})",
-                        userId,
+                        conversationKey.UserId,
                         batch.Count,
                         batch.Count(item => item.ContainsVisual));
                     await _commandBus.SendAsync(
@@ -638,14 +821,14 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Merged private conversation reply failed (UserId={UserId})", userId);
+                    _logger.LogWarning(ex, "Merged private conversation reply failed (UserId={UserId})", conversationKey.UserId);
                 }
 
                 lock (_privateBatchSync)
                 {
                     if (queue.Messages.Count == 0)
                     {
-                        _pendingPrivateConversations.Remove(userId);
+                        _pendingPrivateConversations.Remove(conversationKey);
                         queue.IsProcessing = false;
                         return;
                     }
@@ -660,9 +843,9 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         {
             lock (_privateBatchSync)
             {
-                if (_pendingPrivateConversations.TryGetValue(userId, out var current) && ReferenceEquals(current, queue))
+                if (_pendingPrivateConversations.TryGetValue(conversationKey, out var current) && ReferenceEquals(current, queue))
                 {
-                    _pendingPrivateConversations.Remove(userId);
+                    _pendingPrivateConversations.Remove(conversationKey);
                     queue.IsProcessing = false;
                 }
             }
@@ -730,4 +913,10 @@ public class HimeBotService : BackgroundService, IGroupMessageSender
         MessageReceivedEvent Event,
         string Text,
         bool ContainsVisual);
+
+    private readonly record struct PrivateConversationKey(string AccountId, long UserId);
+
+    private sealed record ConnectedBotAccount(
+        BotAccountConnectionOptions Options,
+        SoraService Service);
 }

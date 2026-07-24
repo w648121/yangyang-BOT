@@ -13,6 +13,7 @@ namespace Hime.Hosting;
 public sealed class ProactiveAgentService : BackgroundService
 {
     private readonly IGroupActivityService _activities;
+    private readonly GroupResponseStateService _groupResponses;
     private readonly IGroupMessageSender _sender;
     private readonly ProactiveGroupAgent _agent;
     private readonly ProactiveContentPlanner _contentPlanner;
@@ -26,6 +27,7 @@ public sealed class ProactiveAgentService : BackgroundService
 
     public ProactiveAgentService(
         IGroupActivityService activities,
+        GroupResponseStateService groupResponses,
         IGroupMessageSender sender,
         ProactiveGroupAgent agent,
         ProactiveContentPlanner contentPlanner,
@@ -38,6 +40,7 @@ public sealed class ProactiveAgentService : BackgroundService
         ILogger<ProactiveAgentService> logger)
     {
         _activities = activities;
+        _groupResponses = groupResponses;
         _sender = sender;
         _agent = agent;
         _contentPlanner = contentPlanner;
@@ -58,18 +61,13 @@ public sealed class ProactiveAgentService : BackgroundService
             return;
         }
 
-        if (_options.AllowedGroupIds.Count == 0)
-        {
-            _logger.LogWarning("主动 Agent 未启动：AllowedGroupIds 为空，出于安全考虑不会向任何群发言");
-            return;
-        }
-
-        _activities.EnsureGroups(_options.AllowedGroupIds);
+        var enabledGroups = _groupResponses.GetEnabledGroupIds();
+        _activities.EnsureGroups(enabledGroups);
 
         _logger.LogInformation(
-            "主动 Agent 已启动（演练={DryRun}，授权群数={GroupCount}，静默阈值={IdleMinutes} 分钟）",
+            "主动 Agent 已启动（演练={DryRun}，数据库启用群数={GroupCount}，静默阈值={IdleMinutes} 分钟）",
             _options.DryRun,
-            _options.AllowedGroupIds.Count,
+            enabledGroups.Count,
             _options.MinimumHourlyMessages);
 
         var initialDelay = TimeSpan.FromSeconds(Math.Clamp(_options.InitialDelaySeconds, 10, 1800));
@@ -130,7 +128,7 @@ public sealed class ProactiveAgentService : BackgroundService
 
     private bool IsCandidate(GroupActivityRecord group, ProactiveHourlyQuota quota, DateTime now)
     {
-        if (!_options.AllowedGroupIds.Contains(group.GroupId) ||
+        if (!_groupResponses.IsEnabled(group.GroupId) ||
             quota.Sent >= quota.Target ||
             group.LastIncomingAt == default)
             return false;
@@ -159,6 +157,14 @@ public sealed class ProactiveAgentService : BackgroundService
         ProactiveHourlyQuota quota,
         CancellationToken cancellationToken)
     {
+        if (!_groupResponses.IsEnabled(group.GroupId))
+        {
+            _logger.LogInformation(
+                "Skipping proactive send because group response is disabled (GroupId={GroupId})",
+                group.GroupId);
+            return;
+        }
+
         if (_messageDispatcher.IsBusy(group.GroupId) || _scheduledReplies.IsPending(group.GroupId))
         {
             _logger.LogDebug(

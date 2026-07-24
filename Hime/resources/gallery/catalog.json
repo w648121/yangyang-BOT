@@ -1,0 +1,1040 @@
+﻿{
+    "version":  1,
+    "generatedAt":  "2026-07-22T06:28:38.8165538Z",
+    "minimumEngagement":  5000,
+    "policy":  "优先发送互动数达到门槛的非 AI/官方作品；无高热作品时仅回退游戏客户端官方角色立绘。",
+    "items":  [
+                  {
+                      "id":  "official-calcharo",
+                      "character":  "卡卡罗",
+                      "aliases":  [
+                                      "calcharo"
+                                  ],
+                      "title":  "卡卡罗 官方角色立绘",
+                      "localPath":  "resources/gallery/official/calcharo.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/calcharo",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "caf4328ad6b944064448336f82790bce68b81a060af3d67c43c0c3ade6fee48a"
+                  },
+                  {
+                      "id":  "official-changli",
+                      "character":  "长离",
+                      "aliases":  [
+                                      "changli"
+                                  ],
+                      "title":  "长离 官方角色立绘",
+                      "localPath":  "resources/gallery/official/changli.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/changli",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "497112fdb2fcf44519f1c7fab6f51d7095f9acf0988005673f439b50416b9553"
+                  },
+                  {
+                      "id":  "official-encore",
+                      "character":  "安可",
+                      "aliases":  [
+                                      "encore"
+                                  ],
+                      "title":  "安可 官方角色立绘",
+                      "localPath":  "resources/gallery/official/encore.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/encore",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "eb47fe73a299b64d7e010ef3ea33a33dda95c35cc052e3f9e52d3efd4399ab40"
+                  },
+                  {
+                      "id":  "official-jinhsi",
+                      "character":  "今汐",
+                      "aliases":  [
+                                      "jinhsi"
+                                  ],
+                      "title":  "今汐 官方角色立绘",
+                      "localPath":  "resources/gallery/official/jinhsi.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/jinhsi",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "9daf0b366ff1308ce5e0d5b9d5cf2cc3995992b0fb62ddfadbfd1a53f4d7f66d"
+                  },
+                  {
+                      "id":  "official-jiyan",
+                      "character":  "忌炎",
+                      "aliases":  [
+                                      "jiyan"
+                                  ],
+                      "title":  "忌炎 官方角色立绘",
+                      "localPath":  "resources/gallery/official/jiyan.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/jiyan",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "9c4837b50ab4ffbaf804aaf2c7703c02f902603b7de4dc50828ea3b7302f00e4"
+                  },
+                  {
+                      "id":  "official-lingyang",
+                      "character":  "凌阳",
+                      "aliases":  [
+                                      "lingyang"
+                                  ],
+                      "title":  "凌阳 官方角色立绘",
+                      "localPath":  "resources/gallery/official/lingyang.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/lingyang",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "22f9fc9cfcb05c39ce52f8181bc1ddbb9df633f544fbffed29ca517f0c8474e3"
+                  },
+                  {
+                      "id":  "official-rover-havoc",
+                      "character":  "漂泊者·湮灭",
+                      "aliases":  [
+                                      "rover-havoc"
+                                  ],
+                      "title":  "漂泊者·湮灭 官方角色立绘",
+                      "localPath":  "resources/gallery/official/rover-havoc.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/rover-havoc",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "fd3c59f84b482cf986e5cc727b322495f14cf0046d5fd1f0d4b6b61d9b05b04c"
+                  },
+                  {
+                      "id":  "official-rover-spectro",
+                      "character":  "漂泊者·衍射",
+                      "aliases":  [
+                                      "rover-spectro"
+                                  ],
+                      "title":  "漂泊者·衍射 官方角色立绘",
+                      "localPath":  "resources/gallery/official/rover-spectro.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/rover-spectro",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "fd3c59f84b482cf986e5cc727b322495f14cf0046d5fd1f0d4b6b61d9b05b04c"
+                  },
+                  {
+                      "id":  "official-rover-aero",
+                      "character":  "漂泊者·气动",
+                      "aliases":  [
+                                      "rover-aero"
+                                  ],
+                      "title":  "漂泊者·气动 官方角色立绘",
+                      "localPath":  "resources/gallery/official/rover-aero.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/rover-aero",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "9396e37984dc878fdebf28a890d24b324c4d336d497338dcb8cf1314de0b2d1d"
+                  },
+                  {
+                      "id":  "official-rover-electro",
+                      "character":  "漂泊者·导电",
+                      "aliases":  [
+                                      "rover-electro"
+                                  ],
+                      "title":  "漂泊者·导电 官方角色立绘",
+                      "localPath":  "resources/gallery/official/rover-electro.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/rover-electro",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "9396e37984dc878fdebf28a890d24b324c4d336d497338dcb8cf1314de0b2d1d"
+                  },
+                  {
+                      "id":  "official-verina",
+                      "character":  "维里奈",
+                      "aliases":  [
+                                      "verina"
+                                  ],
+                      "title":  "维里奈 官方角色立绘",
+                      "localPath":  "resources/gallery/official/verina.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/verina",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "f6da6ab818be605c5b719257b03f5e274ccef3b912e313c04f69e961a7822df4"
+                  },
+                  {
+                      "id":  "official-xiangli-yao",
+                      "character":  "相里要",
+                      "aliases":  [
+                                      "xiangli-yao"
+                                  ],
+                      "title":  "相里要 官方角色立绘",
+                      "localPath":  "resources/gallery/official/xiangli-yao.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/xiangli-yao",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "9be2c1470f46a3670d069139dac0d200bcf0e7fba22e0226418f3e9c0054335c"
+                  },
+                  {
+                      "id":  "official-yinlin",
+                      "character":  "吟霖",
+                      "aliases":  [
+                                      "yinlin"
+                                  ],
+                      "title":  "吟霖 官方角色立绘",
+                      "localPath":  "resources/gallery/official/yinlin.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/yinlin",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "83ae3c75b60b708487ccb190d21497fd86829b0a58515542d70a097e76908503"
+                  },
+                  {
+                      "id":  "official-zhezhi",
+                      "character":  "折枝",
+                      "aliases":  [
+                                      "zhezhi"
+                                  ],
+                      "title":  "折枝 官方角色立绘",
+                      "localPath":  "resources/gallery/official/zhezhi.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/zhezhi",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "56a19f75b94a1c48b818ec18264991a42b2718e33b81bc332125c7764e44f920"
+                  },
+                  {
+                      "id":  "official-shorekeeper",
+                      "character":  "守岸人",
+                      "aliases":  [
+                                      "shorekeeper"
+                                  ],
+                      "title":  "守岸人 官方角色立绘",
+                      "localPath":  "resources/gallery/official/shorekeeper.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/shorekeeper",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "57aea1af2bb1c7a95cc487e8be59411ddd29b1cae6b94ec00183d67c0dfabb9f"
+                  },
+                  {
+                      "id":  "official-camellya",
+                      "character":  "椿",
+                      "aliases":  [
+                                      "camellya"
+                                  ],
+                      "title":  "椿 官方角色立绘",
+                      "localPath":  "resources/gallery/official/camellya.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/camellya",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "e7020171654d9d82e3121f8fa836253fd60cb9c5a83003102744dbaa86d262cf"
+                  },
+                  {
+                      "id":  "official-carlotta",
+                      "character":  "珂莱塔",
+                      "aliases":  [
+                                      "carlotta"
+                                  ],
+                      "title":  "珂莱塔 官方角色立绘",
+                      "localPath":  "resources/gallery/official/carlotta.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/carlotta",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "b7cc74fe064439b985e3165f91f204861bd825309bd8e8a7d00d998562a77b5e"
+                  },
+                  {
+                      "id":  "official-roccia",
+                      "character":  "洛可可",
+                      "aliases":  [
+                                      "roccia"
+                                  ],
+                      "title":  "洛可可 官方角色立绘",
+                      "localPath":  "resources/gallery/official/roccia.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/roccia",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "19c838c0d4a88f0b1857fbcc3b39e91010bf7a154ad5579510890c1866461b92"
+                  },
+                  {
+                      "id":  "official-brant",
+                      "character":  "布兰特",
+                      "aliases":  [
+                                      "brant"
+                                  ],
+                      "title":  "布兰特 官方角色立绘",
+                      "localPath":  "resources/gallery/official/brant.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/brant",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "6a6559c7b220fe1cb7b293540e404cc1f30a02c4cde0873530fc02eaa30920ef"
+                  },
+                  {
+                      "id":  "official-phoebe",
+                      "character":  "菲比",
+                      "aliases":  [
+                                      "phoebe"
+                                  ],
+                      "title":  "菲比 官方角色立绘",
+                      "localPath":  "resources/gallery/official/phoebe.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/phoebe",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "8337f4e3d992059c075a36ed8b7bdf9d3eaa029f093acf5c3e92f0f9f885f795"
+                  },
+                  {
+                      "id":  "official-cantarella",
+                      "character":  "坎特蕾拉",
+                      "aliases":  [
+                                      "cantarella"
+                                  ],
+                      "title":  "坎特蕾拉 官方角色立绘",
+                      "localPath":  "resources/gallery/official/cantarella.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/cantarella",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "7011d5fbda8fc1cb381083e75c3bc7de983aed205fe9411550ef994794e57b9d"
+                  },
+                  {
+                      "id":  "official-zani",
+                      "character":  "赞妮",
+                      "aliases":  [
+                                      "zani"
+                                  ],
+                      "title":  "赞妮 官方角色立绘",
+                      "localPath":  "resources/gallery/official/zani.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/zani",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "1b374eb9643fe2ede0e5e231755e958c9024f48c1e4f27453184967971e5d837"
+                  },
+                  {
+                      "id":  "official-ciaccona",
+                      "character":  "夏空",
+                      "aliases":  [
+                                      "ciaccona"
+                                  ],
+                      "title":  "夏空 官方角色立绘",
+                      "localPath":  "resources/gallery/official/ciaccona.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/ciaccona",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "7a4380f2216dadf2ed149fd790856ac7cbd1e89958b4583b51d808b445f018ff"
+                  },
+                  {
+                      "id":  "official-cartethyia",
+                      "character":  "卡提希娅",
+                      "aliases":  [
+                                      "cartethyia"
+                                  ],
+                      "title":  "卡提希娅 官方角色立绘",
+                      "localPath":  "resources/gallery/official/cartethyia.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/cartethyia",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "953e2dc5445fd2bf9813e9467a1183966706a738302bda45a25ef89249fccdaf"
+                  },
+                  {
+                      "id":  "official-lupa",
+                      "character":  "露帕",
+                      "aliases":  [
+                                      "lupa"
+                                  ],
+                      "title":  "露帕 官方角色立绘",
+                      "localPath":  "resources/gallery/official/lupa.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/lupa",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "145f2dc63a50fff0897aab14971661054006bdd64003d7ce8a3be9f91ebbbc18"
+                  },
+                  {
+                      "id":  "official-phrolova",
+                      "character":  "弗洛洛",
+                      "aliases":  [
+                                      "phrolova"
+                                  ],
+                      "title":  "弗洛洛 官方角色立绘",
+                      "localPath":  "resources/gallery/official/phrolova.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/phrolova",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "b3cb00da6f16a7fc36c4ba6d56b0b21979e57ef5f5488db13561dba5ad5ac5cd"
+                  },
+                  {
+                      "id":  "official-augusta",
+                      "character":  "奥古斯塔",
+                      "aliases":  [
+                                      "augusta"
+                                  ],
+                      "title":  "奥古斯塔 官方角色立绘",
+                      "localPath":  "resources/gallery/official/augusta.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/augusta",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "b90e3471bd5c13a984dbb324657c8a592375172ef6bd243462a8e4fd13a08bff"
+                  },
+                  {
+                      "id":  "official-iuno",
+                      "character":  "尤诺",
+                      "aliases":  [
+                                      "iuno"
+                                  ],
+                      "title":  "尤诺 官方角色立绘",
+                      "localPath":  "resources/gallery/official/iuno.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/iuno",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "ec0cea41da6bcf5ccf969dc925b54318c25bcb675f1d7b688d310d91fbafd241"
+                  },
+                  {
+                      "id":  "official-qiuyuan",
+                      "character":  "仇远",
+                      "aliases":  [
+                                      "qiuyuan"
+                                  ],
+                      "title":  "仇远 官方角色立绘",
+                      "localPath":  "resources/gallery/official/qiuyuan.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/qiuyuan",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "42b2cc7e21f6d9eca2ae1d0a8c66ec1ec11b549092548381a5844a4422778795"
+                  },
+                  {
+                      "id":  "official-galbrena",
+                      "character":  "嘉贝莉娜",
+                      "aliases":  [
+                                      "galbrena"
+                                  ],
+                      "title":  "嘉贝莉娜 官方角色立绘",
+                      "localPath":  "resources/gallery/official/galbrena.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/galbrena",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "0962f40402a1426435d8ccb2f52c70eabae0c57efaed57fc57e822f94d46affd"
+                  },
+                  {
+                      "id":  "official-chisa",
+                      "character":  "千咲",
+                      "aliases":  [
+                                      "chisa"
+                                  ],
+                      "title":  "千咲 官方角色立绘",
+                      "localPath":  "resources/gallery/official/chisa.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/chisa",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "8cb8e54e65c1e006d971a7c2e95dceb816cca0006fd7b2416de54d9c7fbc8b20"
+                  },
+                  {
+                      "id":  "official-mornye",
+                      "character":  "莫宁",
+                      "aliases":  [
+                                      "mornye"
+                                  ],
+                      "title":  "莫宁 官方角色立绘",
+                      "localPath":  "resources/gallery/official/mornye.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/mornye",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "820ccec074e1a90e0641d7e47e28d40db0de20179a9debb56fa2e62566ce7d07"
+                  },
+                  {
+                      "id":  "official-lynae",
+                      "character":  "琳奈",
+                      "aliases":  [
+                                      "lynae"
+                                  ],
+                      "title":  "琳奈 官方角色立绘",
+                      "localPath":  "resources/gallery/official/lynae.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/lynae",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "74bdb0e7300fb35cd4ebb0e5019b8de53118fe873c5c087100a6825fa975b75f"
+                  },
+                  {
+                      "id":  "official-aemeath",
+                      "character":  "爱弥斯",
+                      "aliases":  [
+                                      "aemeath"
+                                  ],
+                      "title":  "爱弥斯 官方角色立绘",
+                      "localPath":  "resources/gallery/official/aemeath.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/aemeath",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "7c75d0d4e0dba40c037d126626907f225a72e43fe21adfe14b4a12ce9671033b"
+                  },
+                  {
+                      "id":  "official-luuk-herssen",
+                      "character":  "陆·赫斯",
+                      "aliases":  [
+                                      "luuk-herssen"
+                                  ],
+                      "title":  "陆·赫斯 官方角色立绘",
+                      "localPath":  "resources/gallery/official/luuk-herssen.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/luuk-herssen",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "4df66b4db27e54d4c8f64e0f5e9b1f2fdbb9fa54885fc4862e340f9635ad35b9"
+                  },
+                  {
+                      "id":  "official-sigrika",
+                      "character":  "西格莉卡",
+                      "aliases":  [
+                                      "sigrika"
+                                  ],
+                      "title":  "西格莉卡 官方角色立绘",
+                      "localPath":  "resources/gallery/official/sigrika.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/sigrika",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "48b99805e69ab6ad16cc50b15d1ce161442eca8731ebe75784307493295d9918"
+                  },
+                  {
+                      "id":  "official-denia",
+                      "character":  "达妮娅",
+                      "aliases":  [
+                                      "denia"
+                                  ],
+                      "title":  "达妮娅 官方角色立绘",
+                      "localPath":  "resources/gallery/official/denia.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/denia",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "584ca244859e3f49ab92ab89c5a1f20b1da3de6fa2089a58f932522c4783bef9"
+                  },
+                  {
+                      "id":  "official-hiyuki",
+                      "character":  "绯雪",
+                      "aliases":  [
+                                      "hiyuki"
+                                  ],
+                      "title":  "绯雪 官方角色立绘",
+                      "localPath":  "resources/gallery/official/hiyuki.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/hiyuki",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "ff0038abc30b3aff37a6acd924227ff884aad2a14871fd75037ac002393e1aca"
+                  },
+                  {
+                      "id":  "official-lucy",
+                      "character":  "露西",
+                      "aliases":  [
+                                      "lucy"
+                                  ],
+                      "title":  "露西 官方角色立绘",
+                      "localPath":  "resources/gallery/official/lucy.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/lucy",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "687603cb622397c3807d283b3ae139ddd0129b00103936e64f32724a97422d58"
+                  },
+                  {
+                      "id":  "official-rebecca",
+                      "character":  "丽贝卡",
+                      "aliases":  [
+                                      "rebecca"
+                                  ],
+                      "title":  "丽贝卡 官方角色立绘",
+                      "localPath":  "resources/gallery/official/rebecca.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/rebecca",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "914181cf7c26fa42f7c62eb3b25425f7da9ae860ae32280c99bbfb13ec27b74e"
+                  },
+                  {
+                      "id":  "official-lucilla",
+                      "character":  "洛瑟菈",
+                      "aliases":  [
+                                      "lucilla"
+                                  ],
+                      "title":  "洛瑟菈 官方角色立绘",
+                      "localPath":  "resources/gallery/official/lucilla.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/lucilla",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "4efa85cf95a19811f19473dda2d0c4bc871e65e9f915b75d4020dccf205c5c7d"
+                  },
+                  {
+                      "id":  "official-aalto",
+                      "character":  "秋水",
+                      "aliases":  [
+                                      "aalto"
+                                  ],
+                      "title":  "秋水 官方角色立绘",
+                      "localPath":  "resources/gallery/official/aalto.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/aalto",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "e31dbe15c6da60a956178346f18d5c4c1691a93dee5dd65c211b29ec24062e5a"
+                  },
+                  {
+                      "id":  "official-baizhi",
+                      "character":  "白芷",
+                      "aliases":  [
+                                      "baizhi"
+                                  ],
+                      "title":  "白芷 官方角色立绘",
+                      "localPath":  "resources/gallery/official/baizhi.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/baizhi",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "4119db4788561713013faf653d4079310ff4d74fdd057224bd749ca950892adc"
+                  },
+                  {
+                      "id":  "official-chixia",
+                      "character":  "赤霞",
+                      "aliases":  [
+                                      "chixia"
+                                  ],
+                      "title":  "赤霞 官方角色立绘",
+                      "localPath":  "resources/gallery/official/chixia.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/chixia",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "e3c32e8abbdc8f6d2ee2dc81da2754278f9eac892322c8b7ba1b464ae82d02ab"
+                  },
+                  {
+                      "id":  "official-danjin",
+                      "character":  "丹瑾",
+                      "aliases":  [
+                                      "danjin"
+                                  ],
+                      "title":  "丹瑾 官方角色立绘",
+                      "localPath":  "resources/gallery/official/danjin.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/danjin",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "8a23c9a70b956e531fef5d84f42e77fb298b92c4d7ed192917acf80d4dacdd5d"
+                  },
+                  {
+                      "id":  "official-jianxin",
+                      "character":  "鉴心",
+                      "aliases":  [
+                                      "jianxin"
+                                  ],
+                      "title":  "鉴心 官方角色立绘",
+                      "localPath":  "resources/gallery/official/jianxin.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/jianxin",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "fccd0557b7c6dc923bcb5231dea435d683c6094829065f5ec1f23e4bfd2b41f7"
+                  },
+                  {
+                      "id":  "official-mortefi",
+                      "character":  "莫特斐",
+                      "aliases":  [
+                                      "mortefi"
+                                  ],
+                      "title":  "莫特斐 官方角色立绘",
+                      "localPath":  "resources/gallery/official/mortefi.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/mortefi",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "7ae930fbd548867c9282e75709eef8ab1a77ba8a901ff90e6d6d34586adf89ae"
+                  },
+                  {
+                      "id":  "official-sanhua",
+                      "character":  "散华",
+                      "aliases":  [
+                                      "sanhua"
+                                  ],
+                      "title":  "散华 官方角色立绘",
+                      "localPath":  "resources/gallery/official/sanhua.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/sanhua",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "852a99e332e8c7ac524814f46d1f649f47cd7640269bb6ea7d2bec56038cb310"
+                  },
+                  {
+                      "id":  "official-taoqi",
+                      "character":  "桃祈",
+                      "aliases":  [
+                                      "taoqi"
+                                  ],
+                      "title":  "桃祈 官方角色立绘",
+                      "localPath":  "resources/gallery/official/taoqi.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/taoqi",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "ab05080444e4c045f27ca10cdf1d671f8147e792fe8e51aafbd494df133b7e7d"
+                  },
+                  {
+                      "id":  "official-yangyang",
+                      "character":  "秧秧",
+                      "aliases":  [
+                                      "yangyang"
+                                  ],
+                      "title":  "秧秧 官方角色立绘",
+                      "localPath":  "resources/gallery/official/yangyang.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/yangyang",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "1e62bc934b08b8f72791672bdd0b9eb39dacc4e68a0bf85ddca0f017b0da4d99"
+                  },
+                  {
+                      "id":  "official-yangyang-xuanling",
+                      "character":  "秧秧·玄翎",
+                      "aliases":  [
+                                      "yangyang-xuanling"
+                                  ],
+                      "title":  "秧秧·玄翎 官方角色立绘",
+                      "localPath":  "resources/gallery/official/yangyang-xuanling.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/yangyang-xuanling",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "d5696927ca9f7176dc9f5a9698882eecc5eca7a94def1b4c41d5d26e06fc65e9"
+                  },
+                  {
+                      "id":  "official-suisui",
+                      "character":  "穗穗",
+                      "aliases":  [
+                                      "suisui"
+                                  ],
+                      "title":  "穗穗 官方角色立绘",
+                      "localPath":  "resources/gallery/official/suisui.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/suisui",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "ca8a60a6e2884fb9872b49c20bd0f7f503a7d873b265dc5a9df8885c83c6201e"
+                  },
+                  {
+                      "id":  "official-yuanwu",
+                      "character":  "渊武",
+                      "aliases":  [
+                                      "yuanwu"
+                                  ],
+                      "title":  "渊武 官方角色立绘",
+                      "localPath":  "resources/gallery/official/yuanwu.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/yuanwu",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "a5558ea06c4f0d87d01911cfc596f09de5fe76434a31d78d29590d230dfb93e3"
+                  },
+                  {
+                      "id":  "official-youhu",
+                      "character":  "釉瑚",
+                      "aliases":  [
+                                      "youhu"
+                                  ],
+                      "title":  "釉瑚 官方角色立绘",
+                      "localPath":  "resources/gallery/official/youhu.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/youhu",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "482441a82795e3319678ad6dfddc54e0e11d44e3a744f61b278750b71049b230"
+                  },
+                  {
+                      "id":  "official-lumi",
+                      "character":  "灯灯",
+                      "aliases":  [
+                                      "lumi"
+                                  ],
+                      "title":  "灯灯 官方角色立绘",
+                      "localPath":  "resources/gallery/official/lumi.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/lumi",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "e2815762c01e0e45ce15c3281a45b347684728941387fec996657442fb817590"
+                  },
+                  {
+                      "id":  "official-buling",
+                      "character":  "卜灵",
+                      "aliases":  [
+                                      "buling"
+                                  ],
+                      "title":  "卜灵 官方角色立绘",
+                      "localPath":  "resources/gallery/official/buling.jpg",
+                      "sourceUrl":  "https://wuthering.gg/characters/buling",
+                      "publisher":  "库洛游戏客户端资源（Wuthering.gg 索引）",
+                      "sourceKind":  "official-game-asset",
+                      "nonAiBasis":  "游戏客户端官方角色资源；非生成式 AI 作品",
+                      "isOfficial":  true,
+                      "likes":  0,
+                      "favorites":  0,
+                      "sha256":  "7193c9b99f6a789fd140b494d3ca1f3223d1ad1a8eb21ebc632cd633246f3b54"
+                  },
+                  {
+                      "id":  "featured-xuanling-combat",
+                      "character":  "秧秧·玄翎",
+                      "aliases":  [
+                                      "玄翎",
+                                      "秧秧玄翎",
+                                      "xuanling",
+                                      "yangyang-xuanling"
+                                  ],
+                      "title":  "共鸣者战斗演示｜秧秧·玄翎",
+                      "localPath":  "resources/yangyang-gallery/official/yangyang-combat-demo.jpg",
+                      "sourceUrl":  "https://www.bilibili.com/video/BV1mtTD6rEtQ/",
+                      "publisher":  "鸣潮官方",
+                      "sourceKind":  "verified-high-engagement-official",
+                      "nonAiBasis":  "鸣潮官方发布的视频封面；公开互动数据超过 5000",
+                      "isOfficial":  true,
+                      "likes":  107302,
+                      "favorites":  16369,
+                      "sha256":  "16f2139c39d7a46e9ecb2de3aba18edefbb5fa9ca1d4e2f45d35255e3b5ce852"
+                  },
+                  {
+                      "id":  "featured-xuanling-nightmare",
+                      "character":  "秧秧·玄翎",
+                      "aliases":  [
+                                      "玄翎",
+                                      "秧秧玄翎",
+                                      "xuanling",
+                                      "yangyang-xuanling"
+                                  ],
+                      "title":  "秧秧·玄翎 PV｜噩梦",
+                      "localPath":  "resources/yangyang-gallery/official/yangyang-nightmare-pv.jpg",
+                      "sourceUrl":  "https://www.bilibili.com/video/BV1ZKMe61Eth/",
+                      "publisher":  "鸣潮官方",
+                      "sourceKind":  "verified-high-engagement-official",
+                      "nonAiBasis":  "鸣潮官方发布的视频封面；公开互动数据超过 5000",
+                      "isOfficial":  true,
+                      "likes":  109242,
+                      "favorites":  23104,
+                      "sha256":  "0a4dd87a6b3a897b48dbfe1ba2614db514552c79f3c51ca142d183b50f7dfe31"
+                  },
+                  {
+                      "id":  "featured-xuanling-constellation",
+                      "character":  "秧秧·玄翎",
+                      "aliases":  [
+                                      "玄翎",
+                                      "秧秧玄翎",
+                                      "xuanling",
+                                      "yangyang-xuanling"
+                                  ],
+                      "title":  "寰宇人类注疏：群星交错｜秧秧·玄翎",
+                      "localPath":  "resources/yangyang-gallery/official/yangyang-constellation.jpg",
+                      "sourceUrl":  "https://www.bilibili.com/video/BV1L8jT69EgW/",
+                      "publisher":  "鸣潮官方",
+                      "sourceKind":  "verified-high-engagement-official",
+                      "nonAiBasis":  "鸣潮官方发布的视频封面；公开互动数据超过 5000",
+                      "isOfficial":  true,
+                      "likes":  134994,
+                      "favorites":  15805,
+                      "sha256":  "7186bb8b17f11aeb52940d88d73e9d2b0a4e7f5e9f466b6dd3f2c074bff9a8c1"
+                  },
+                  {
+                      "id":  "featured-xuanling-fourth-fall",
+                      "character":  "秧秧·玄翎",
+                      "aliases":  [
+                                      "玄翎",
+                                      "秧秧玄翎",
+                                      "xuanling",
+                                      "yangyang-xuanling"
+                                  ],
+                      "title":  "过场动画｜第四次于风中坠落",
+                      "localPath":  "resources/yangyang-gallery/official/yangyang-fourth-fall.jpg",
+                      "sourceUrl":  "https://www.bilibili.com/video/BV12DNN63EXa/",
+                      "publisher":  "鸣潮官方",
+                      "sourceKind":  "verified-high-engagement-official",
+                      "nonAiBasis":  "鸣潮官方发布的视频封面；公开互动数据超过 5000",
+                      "isOfficial":  true,
+                      "likes":  42430,
+                      "favorites":  11474,
+                      "sha256":  "a872bbbb8dae7e879fac7be93c7bd27c82b70cb15154648f99e841250299aab6"
+                  }
+              ]
+}

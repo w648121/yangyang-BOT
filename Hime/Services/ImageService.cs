@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Hime.Services;
@@ -53,6 +54,8 @@ public sealed class ImageService
     private readonly bool _onlyUseApprovedStickers;
     private readonly HashSet<string> _approvedStickerFileNames;
     private readonly IReadOnlyList<string> _approvedStickerDirectories;
+    private readonly long _maxSendableStickerBytes;
+    private readonly ILogger<ImageService>? _logger;
     private readonly StickerTagCatalog _stickerTags;
     private readonly StickerTagOptions _stickerTagOptions;
     private readonly object _sync = new();
@@ -63,11 +66,14 @@ public sealed class ImageService
     public ImageService(
         IOptions<ImageOptions> options,
         StickerTagCatalog stickerTags,
-        IOptions<StickerTagOptions> stickerTagOptions)
+        IOptions<StickerTagOptions> stickerTagOptions,
+        ILogger<ImageService>? logger = null)
     {
         var opts = options.Value;
         _stickerTags = stickerTags;
         _stickerTagOptions = stickerTagOptions.Value;
+        _logger = logger;
+        _maxSendableStickerBytes = Math.Max(64 * 1024, opts.MaxSendableStickerBytes);
 
         _imageDir = Path.IsPathRooted(opts.Directory)
             ? opts.Directory
@@ -96,7 +102,7 @@ public sealed class ImageService
     }
 
     public ImageService(IOptions<ImageOptions> options, StickerTagCatalog stickerTags)
-        : this(options, stickerTags, Options.Create(new StickerTagOptions()))
+        : this(options, stickerTags, Options.Create(new StickerTagOptions()), null)
     {
     }
 
@@ -107,6 +113,7 @@ public sealed class ImageService
     {
         lock (_sync)
         {
+            var skippedOversized = 0;
             _images.Clear();
             _emotionImages.Clear();
             foreach (var directory in _scanDirectories.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -116,11 +123,24 @@ public sealed class ImageService
 
                 foreach (var file in Directory.EnumerateFiles(directory, "*.*", SearchOption.AllDirectories))
                 {
-                    if (_allowedExtensions.Contains(Path.GetExtension(file)))
-                        RegisterImageInternal(null, file);
+                    if (!_allowedExtensions.Contains(Path.GetExtension(file)))
+                        continue;
+                    if (new FileInfo(file).Length > _maxSendableStickerBytes)
+                    {
+                        skippedOversized++;
+                        continue;
+                    }
+                    RegisterImageInternal(null, file);
                 }
             }
             RebuildEmotionPoolsFromCatalogUnderLock();
+            if (skippedOversized > 0)
+            {
+                _logger?.LogWarning(
+                    "Excluded {Count} oversized sticker(s) from the sendable catalog (limit={LimitBytes} bytes).",
+                    skippedOversized,
+                    _maxSendableStickerBytes);
+            }
         }
     }
 
@@ -143,6 +163,8 @@ public sealed class ImageService
 
         var fullPath = Path.GetFullPath(path);
         if (!_allowedExtensions.Contains(Path.GetExtension(fullPath)))
+            return false;
+        if (new FileInfo(fullPath).Length > _maxSendableStickerBytes)
             return false;
 
         return IsApprovedStickerPathCore(fullPath);

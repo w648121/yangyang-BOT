@@ -1,5 +1,6 @@
 using Hime.Commands;
 using Hime.Data;
+using Hime.Jobs;
 using LiteDB;
 using Microsoft.Extensions.Logging;
 
@@ -218,13 +219,27 @@ public sealed class PendingInteractionMiddleware(
     {
         var message = context.Message;
         var text = message.Text.Trim();
-        var soft = await interactions.GetSoftExpectationsAsync(message.ScopeKey, cancellationToken);
-        if (soft.Count > 0)
+        var userScope = JobInteractionScopes.ForUser(message.ScopeKey, message.SenderId);
+        var scopeKeys = new[] { userScope, message.ScopeKey }
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var softItems = new List<PendingInteraction>();
+        foreach (var scopeKey in scopeKeys)
+        {
+            softItems.AddRange(
+                await interactions.GetSoftExpectationsAsync(scopeKey, cancellationToken));
+        }
+        var soft = softItems
+            .DistinctBy(item => item.Id, StringComparer.Ordinal)
+            .ToArray();
+        if (soft.Length > 0)
             context.Items["soft-expectations"] = soft;
 
         if (IsCancellation(text))
         {
-            var removed = await interactions.CancelAsync(message.ScopeKey, null, cancellationToken);
+            var removed = 0;
+            foreach (var scopeKey in scopeKeys)
+                removed += await interactions.CancelAsync(scopeKey, null, cancellationToken);
             if (removed > 0)
             {
                 await AiCommand.Reply(message.NativeEvent, "已取消当前等待。");
@@ -236,12 +251,24 @@ public sealed class PendingInteractionMiddleware(
         // An explicit new command supersedes an older hard wait and is routed normally.
         if (IsExplicitCommand(text))
         {
-            await interactions.CancelAsync(message.ScopeKey, InteractionMode.HardWait, cancellationToken);
+            foreach (var scopeKey in scopeKeys)
+            {
+                await interactions.CancelAsync(
+                    scopeKey,
+                    InteractionMode.HardWait,
+                    cancellationToken);
+            }
             await next(context, cancellationToken);
             return;
         }
 
-        var pending = await interactions.ClaimHardWaitAsync(message.ScopeKey, cancellationToken);
+        PendingInteraction? pending = null;
+        foreach (var scopeKey in scopeKeys)
+        {
+            pending = await interactions.ClaimHardWaitAsync(scopeKey, cancellationToken);
+            if (pending is not null)
+                break;
+        }
         if (pending is null)
         {
             await next(context, cancellationToken);

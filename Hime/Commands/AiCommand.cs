@@ -70,6 +70,8 @@ public class AiCommand
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly IChatService _chat;
+    private readonly ConversationContextAssembler _contextAssembler;
+    private readonly IPersonaStateService _personaStates;
     private readonly IGroupActivityService _groupActivities;
     private readonly IAiClient _ai;
     private readonly ImageService _imageService;
@@ -88,10 +90,13 @@ public class AiCommand
     private readonly PersonaComplianceService _personaCompliance;
     private readonly RuntimeFactResponder _runtimeFacts;
     private readonly RuntimeDiagnostics _diagnostics;
+    private readonly GroupResponseStateService _groupResponses;
     private readonly ILogger<AiCommand> _logger;
 
     public AiCommand(
         IChatService chat,
+        ConversationContextAssembler contextAssembler,
+        IPersonaStateService personaStates,
         IGroupActivityService groupActivities,
         IAiClient ai,
         ImageService imageService,
@@ -110,9 +115,12 @@ public class AiCommand
         PersonaComplianceService personaCompliance,
         RuntimeFactResponder runtimeFacts,
         RuntimeDiagnostics diagnostics,
+        GroupResponseStateService groupResponses,
         ILogger<AiCommand> logger)
     {
         _chat = chat;
+        _contextAssembler = contextAssembler;
+        _personaStates = personaStates;
         _groupActivities = groupActivities;
         _ai = ai;
         _imageService = imageService;
@@ -131,6 +139,7 @@ public class AiCommand
         _personaCompliance = personaCompliance;
         _runtimeFacts = runtimeFacts;
         _diagnostics = diagnostics;
+        _groupResponses = groupResponses;
         _logger = logger;
     }
 
@@ -198,6 +207,15 @@ public class AiCommand
     /// </summary>
     public async Task DoChat(MessageReceivedEvent e, string prompt)
     {
+        long? groupId = e.Message.SourceType == MessageSourceType.Group ? e.Message.GroupId : null;
+        GroupResponseLease? responseLease = null;
+        if (groupId.HasValue)
+        {
+            responseLease = _groupResponses.TryCapture(groupId.Value);
+            if (!responseLease.HasValue)
+                return;
+        }
+
         var userId = e.Sender?.UserId ?? 0;
         if (userId == 0)
         {
@@ -205,7 +223,6 @@ public class AiCommand
             return;
         }
 
-        long? groupId = e.Message.SourceType == MessageSourceType.Group ? e.Message.GroupId : null;
         var nickname = e.Sender?.Nickname ?? "用户";
         var groupName = groupId.HasValue ? e.Group?.GroupName : null;
 
@@ -271,6 +288,9 @@ public class AiCommand
                 : prompt + "\n" + imageNotice;
         }
 
+        _personaStates.ObserveConversation(userId, nickname, groupId, groupName);
+        _personaStates.CaptureExplicitFacts(userId, groupId, prompt);
+
         // 取历史 + 当前问题，拼成完整对话上下文
         var interactionPlan = _relationshipTrajectory.BuildPlan(
             e.Message.MessageId,
@@ -282,6 +302,14 @@ public class AiCommand
         var route = _conversationRouter.Route(prompt);
         if (_runtimeFacts.TryRespond(prompt, route, userId, groupId.HasValue, out var verifiedReply))
         {
+            if (responseLease.HasValue && !_groupResponses.CanDeliver(responseLease.Value))
+            {
+                _logger.LogInformation(
+                    "Discarded runtime fact reply because the group response generation changed (GroupId={GroupId}, Epoch={Epoch})",
+                    responseLease.Value.GroupId,
+                    responseLease.Value.GenerationEpoch);
+                return;
+            }
             _chat.AppendTurn(
                 userId,
                 nickname,
@@ -298,16 +326,26 @@ public class AiCommand
                 verifiedReply,
                 "neutral",
                 "runtime-fact");
+            _personaStates.RecordAssistantReply(userId, groupId, "neutral");
             await Reply(e, verifiedReply);
-            QueueAutomaticVoice(e, verifiedReply, emotion: "neutral");
+            QueueAutomaticVoice(e, verifiedReply, emotion: "neutral", responseLease: responseLease);
             if (groupId.HasValue)
                 _groupActivities.RecordBotReply(groupId.Value, verifiedReply);
             return;
         }
 
-        var stateContext = interactionPlan.PromptContext;
-        var publicGroupContext = groupId.HasValue ? BuildPublicGroupContext(groupId.Value) : null;
-        var history = _chat.GetHistory(userId, groupId, prompt);
+        var personaStateContext = _personaStates.BuildPromptContext(
+            userId,
+            nickname,
+            groupId,
+            groupName,
+            prompt);
+        var stateContext = string.Join(
+            "\n\n",
+            new[] { interactionPlan.PromptContext, personaStateContext }
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
+        var assembledContext = _contextAssembler.Build(userId, nickname, groupId, prompt);
+        var history = assembledContext.Messages;
         var context = new List<ChatMessage>(history.Count + 4);
         if (!string.IsNullOrWhiteSpace(stateContext))
         {
@@ -326,16 +364,6 @@ public class AiCommand
             GroupId = groupId,
             Time = DateTime.UtcNow
         });
-        if (!string.IsNullOrWhiteSpace(publicGroupContext))
-        {
-            context.Add(new ChatMessage
-            {
-                Role = "system",
-                Content = publicGroupContext,
-                GroupId = groupId,
-                Time = DateTime.UtcNow
-            });
-        }
         context.Add(new ChatMessage
         {
             Role = "system",
@@ -439,17 +467,23 @@ public class AiCommand
                         userId,
                         casual: route.Mode == ConversationMode.Casual,
                         requireEmotionMarker: false,
-                        recentAssistantReplies: history
-                            .Where(message => string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase))
-                            .Select(message => message.Content ?? string.Empty)
-                            .TakeLast(20)
-                            .ToArray(),
+                        recentAssistantReplies: assembledContext.RecentAssistantReplies,
                         repeatedCurrentMessageCount: interactionPlan.RepeatedCurrentMessageCount));
             }
 
             var replyMedia = ParseReplyMedia(reply, route.AllowDecorativeMedia);
             if (requestedStickerCount > 0 && route.AllowDecorativeMedia)
                 replyMedia = EnsureRequestedStickerCount(replyMedia, requestedStickerCount, requestedStickerEmotion);
+
+            if (responseLease.HasValue && !_groupResponses.CanDeliver(responseLease.Value))
+            {
+                _logger.LogInformation(
+                    "Discarded generated AI reply because the group response generation changed (GroupId={GroupId}, Epoch={Epoch})",
+                    responseLease.Value.GroupId,
+                    responseLease.Value.GenerationEpoch);
+                _diagnostics.Increment("replies.discarded.generation-changed");
+                return;
+            }
 
             // 保存原始文本、情绪标签，以及收发双方涉及的本地图片路径。
             _chat.AppendTurn(
@@ -474,18 +508,26 @@ public class AiCommand
                 userId,
                 groupId,
                 replyMedia.MemoryProposals);
+            _personaStates.ApplyMemoryProposals(userId, groupId, replyMedia.MemoryProposals);
+            _personaStates.RecordAssistantReply(userId, groupId, replyMedia.Emotion ?? "neutral");
 
             // 文字与图片先立即送达；中文语音由后台队列完成后独立补发。
             // 模型明确给出 [voice:xxx] 时仍尊重该声线，否则使用配置的默认秧秧中文声线。
             await SendReply(e, replyMedia, null);
-            QueueAutomaticVoice(e, replyMedia.CleanText, replyMedia.Voice, replyMedia.Emotion);
+            QueueAutomaticVoice(
+                e,
+                replyMedia.CleanText,
+                replyMedia.Voice,
+                replyMedia.Emotion,
+                responseLease);
             if (groupId.HasValue)
                 _groupActivities.RecordBotReply(groupId.Value, replyMedia.CleanText);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "AI 调用失败 (UserId={UserId}, GroupId={GroupId})", userId, groupId);
-            await Reply(e, $"AI 调用失败：{ex.Message}");
+            if (!responseLease.HasValue || _groupResponses.CanDeliver(responseLease.Value))
+                await Reply(e, $"AI 调用失败：{ex.Message}");
         }
     }
 
@@ -574,7 +616,8 @@ public class AiCommand
         MessageReceivedEvent e,
         string? visibleText,
         string? requestedVoice = null,
-        string? emotion = null)
+        string? emotion = null,
+        GroupResponseLease? responseLease = null)
     {
         var context = e.Message.SourceType == MessageSourceType.Group
             ? $"group:{e.Message.GroupId}"
@@ -591,7 +634,8 @@ public class AiCommand
             },
             requestedVoice,
             context,
-            emotion);
+            emotion,
+            responseLease?.GenerationEpoch);
     }
 
     /// <summary>
@@ -600,28 +644,52 @@ public class AiCommand
     /// </summary>
     private async Task SendReply(MessageReceivedEvent e, ReplyMedia reply, string? voicePath)
     {
-        var msg = new MessageBody();
-        if (!string.IsNullOrWhiteSpace(reply.CleanText))
-            msg.AddText(reply.CleanText);
-        foreach (var path in reply.ImagePaths)
-            msg.AddImage(new Uri(Path.GetFullPath(path)).AbsoluteUri, ImageSubType.Normal);
-
-        if (msg.Count == 0 && string.IsNullOrWhiteSpace(voicePath))
-            msg.AddText("……");
-
-        if (msg.Count > 0)
+        async Task SendBodyAsync(MessageBody body)
         {
-            await _diagnostics.TrackAsync("reply.send.content", async () =>
+            if (e.Message.SourceType == MessageSourceType.Group)
+                await e.Api.SendGroupMessageAsync(e.Message.GroupId, body);
+            else
+                await e.Api.SendFriendMessageAsync(e.Message.SenderId, body);
+        }
+
+        // Keep the text independent from local stickers. If QQ rejects one GIF,
+        // the actual answer remains visible and other stickers can still be sent.
+        if (!string.IsNullOrWhiteSpace(reply.CleanText))
+        {
+            await _diagnostics.TrackAsync(
+                "reply.send.content",
+                () => SendBodyAsync(new MessageBody(reply.CleanText)));
+            _diagnostics.Increment("replies.text.sent");
+        }
+
+        foreach (var path in reply.ImagePaths.Where(File.Exists))
+        {
+            try
             {
-                if (e.Message.SourceType == MessageSourceType.Group)
-                    await e.Api.SendGroupMessageAsync(e.Message.GroupId, msg);
-                else
-                    await e.Api.SendFriendMessageAsync(e.Message.SenderId, msg);
-            });
-            if (!string.IsNullOrWhiteSpace(reply.CleanText))
-                _diagnostics.Increment("replies.text.sent");
-            if (reply.ImagePaths.Count > 0)
-                _diagnostics.Increment("replies.image.sent", reply.ImagePaths.Count);
+                var file = new FileInfo(path);
+                _logger.LogInformation(
+                    "Sending local sticker (File={FileName}, Bytes={Bytes}).",
+                    file.Name,
+                    file.Length);
+                var sticker = new MessageBody().AddImage(
+                    new Uri(file.FullName).AbsoluteUri,
+                    ImageSubType.Sticker);
+                await _diagnostics.TrackAsync("reply.send.image", () => SendBodyAsync(sticker));
+                _diagnostics.Increment("replies.image.sent");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Local sticker send failed; the text reply was preserved (Path={Path}).", path);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(reply.CleanText) &&
+            reply.ImagePaths.Count == 0 &&
+            string.IsNullOrWhiteSpace(voicePath))
+        {
+            await _diagnostics.TrackAsync(
+                "reply.send.content",
+                () => SendBodyAsync(new MessageBody("……")));
         }
 
         // QQ/Milky 对音文混发的兼容性不一致，因此语音使用独立消息发送。

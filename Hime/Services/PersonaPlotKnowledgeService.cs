@@ -11,35 +11,6 @@ namespace Hime.Services;
 /// </summary>
 public sealed class PersonaPlotKnowledgeService
 {
-    private static readonly IReadOnlyDictionary<string, string> EntityAliases =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["云灵谷"] = "云陵谷",
-            ["云岭谷"] = "云陵谷",
-            ["云陵古"] = "云陵谷",
-            ["漂泊着"] = "漂泊者",
-            ["央央"] = "秧秧",
-            ["玄凌"] = "玄翎",
-            ["玄玲"] = "玄翎",
-            ["炽夏"] = "炽霞",
-            ["白枝"] = "白芷",
-            ["今洲"] = "今州",
-            ["黑海安"] = "黑海岸"
-        };
-
-    private static readonly string[] PlotQuestionSignals =
-    [
-        "剧情", "任务", "版本", "初见", "第一次", "相遇", "发生", "当时", "以前",
-        "过去", "经历", "故事", "还记得", "记不记得", "是哪", "哪里", "什么时候", "为什么",
-        "来信", "写信", "邮件", "祝福", "前瞻", "追月节", "玄方", "玄翎"
-    ];
-
-    private static readonly HashSet<string> WeakTerms =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            "秧秧", "漂泊者", "事情", "故事", "剧情", "任务", "版本", "发生", "记得", "当时"
-        };
-
     private readonly IOptionsMonitor<PersonaOptions> _options;
     private readonly ILogger<PersonaPlotKnowledgeService> _logger;
     private readonly object _sync = new();
@@ -98,7 +69,7 @@ public sealed class PersonaPlotKnowledgeService
         var terms = ExtractTerms(compact);
 
         var ranked = Load()
-            .Select(item => new { Event = item, Score = Score(item, compact, terms) })
+            .Select(item => new { Event = item, Score = ScorePlotEvent(item, compact, terms) })
             .Where(item => item.Score >= 18)
             .OrderByDescending(item => item.Score)
             .ThenBy(item => item.Event.Id, StringComparer.Ordinal)
@@ -150,8 +121,11 @@ public sealed class PersonaPlotKnowledgeService
         return builder.ToString();
     }
 
-    private static int Score(PersonaPlotEvent item, string compact, IReadOnlySet<string> terms)
+    private int ScorePlotEvent(PersonaPlotEvent item, string compact, IReadOnlySet<string> terms)
     {
+        var weakTerms = _options.CurrentValue.PlotWeakTerms
+            .Where(term => !string.IsNullOrWhiteSpace(term))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var score = 0;
         score += MatchScore(compact, item.Title, 50);
         score += MatchScore(compact, item.Quest, 44);
@@ -161,7 +135,7 @@ public sealed class PersonaPlotKnowledgeService
         score += item.Aliases.Sum(alias => MatchScore(compact, alias, 42));
         score += item.Locations.Sum(location => MatchScore(compact, location, 38));
         score += item.Participants
-            .Where(participant => !WeakTerms.Contains(participant))
+            .Where(participant => !weakTerms.Contains(participant))
             .Sum(participant => MatchScore(compact, participant, 20));
 
         var searchable = Compact(string.Join('|',
@@ -175,7 +149,7 @@ public sealed class PersonaPlotKnowledgeService
             string.Join('|', item.Facts),
             string.Join('|', item.Locations),
             string.Join('|', item.Participants)));
-        score += terms.Where(term => !WeakTerms.Contains(term) && searchable.Contains(term, StringComparison.OrdinalIgnoreCase)).Count() * 5;
+        score += terms.Where(term => !weakTerms.Contains(term) && searchable.Contains(term, StringComparison.OrdinalIgnoreCase)).Count() * 5;
         return score;
     }
 
@@ -185,11 +159,11 @@ public sealed class PersonaPlotKnowledgeService
         return candidate.Length >= 2 && focus.Contains(candidate, StringComparison.OrdinalIgnoreCase) ? score : 0;
     }
 
-    private static string NormalizeAliases(string value, out IReadOnlyList<PersonaEntityCorrection> corrections)
+    private string NormalizeAliases(string value, out IReadOnlyList<PersonaEntityCorrection> corrections)
     {
         var normalized = value;
         var found = new List<PersonaEntityCorrection>();
-        foreach (var pair in EntityAliases)
+        foreach (var pair in _options.CurrentValue.PlotEntityAliases)
         {
             if (!normalized.Contains(pair.Key, StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -200,8 +174,10 @@ public sealed class PersonaPlotKnowledgeService
         return normalized;
     }
 
-    private static bool LooksLikePlotQuestion(string value) =>
-        PlotQuestionSignals.Any(signal => value.Contains(signal, StringComparison.OrdinalIgnoreCase)) &&
+    private bool LooksLikePlotQuestion(string value) =>
+        _options.CurrentValue.PlotQuestionSignals
+            .Where(signal => !string.IsNullOrWhiteSpace(signal))
+            .Any(signal => value.Contains(signal.Trim(), StringComparison.OrdinalIgnoreCase)) &&
         (value.Contains("秧秧", StringComparison.OrdinalIgnoreCase) ||
          value.Contains("玄翎", StringComparison.OrdinalIgnoreCase) ||
          value.Contains("漂泊者", StringComparison.OrdinalIgnoreCase) ||

@@ -10,7 +10,20 @@ public interface IPersonaStateService
 
     void ApplyMemoryProposals(long userId, long? groupId, IReadOnlyCollection<PersonaMemoryProposal> proposals);
 
-    string BuildPromptContext(long userId, string nickname, long? groupId, string? groupName = null);
+    int CaptureExplicitFacts(long userId, long? groupId, string text);
+
+    IReadOnlyList<PersonaMemoryFact> GetConfirmedFacts(
+        long userId,
+        long? groupId,
+        string? focus,
+        int maximum = 8);
+
+    string BuildPromptContext(
+        long userId,
+        string nickname,
+        long? groupId,
+        string? groupName = null,
+        string? focus = null);
 
     string BuildGroupPromptContext(
         long groupId,

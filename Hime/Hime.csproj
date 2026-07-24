@@ -70,6 +70,19 @@
     <None Update="resources/**/*">
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
+    <!-- 运行 Hime.exe 或 dotnet run 时都必须可用的精选资源；不复制自动收集和待审核大目录。 -->
+    <None Update="resources/gallery/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="resources/images/approved/official-yangyang/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="resources/yangyang-gallery/official/yangyang-*.jpg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="resources/yangyang-gallery/sources.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="data/sticker-tags.json">
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>

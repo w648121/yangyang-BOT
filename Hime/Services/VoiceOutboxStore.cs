@@ -57,12 +57,13 @@ public sealed class VoiceOutboxStore
         int priority,
         string? correlationId,
         string destinationKind,
-        long destinationId)
+        long destinationId,
+        long? generationEpoch = null)
     {
         if (!_options.Enabled || destinationId <= 0)
             return null;
 
-        var identity = string.Join('\n', correlationId ?? Guid.NewGuid().ToString("N"), context, speechText, voice, destinationKind, destinationId);
+        var identity = string.Join('\n', correlationId ?? Guid.NewGuid().ToString("N"), context, speechText, voice, destinationKind, destinationId, generationEpoch);
         var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..24].ToLowerInvariant();
         lock (_sync)
         {
@@ -80,6 +81,7 @@ public sealed class VoiceOutboxStore
                 CorrelationId = correlationId,
                 DestinationKind = destinationKind,
                 DestinationId = destinationId,
+                GenerationEpoch = generationEpoch,
                 CreatedAt = DateTimeOffset.UtcNow,
                 NextAttemptAt = DateTimeOffset.UtcNow
             };
@@ -161,6 +163,7 @@ public sealed class VoiceOutboxStore
         CorrelationId = entry.CorrelationId,
         DestinationKind = entry.DestinationKind,
         DestinationId = entry.DestinationId,
+        GenerationEpoch = entry.GenerationEpoch,
         CreatedAt = entry.CreatedAt,
         Attempts = entry.Attempts,
         LastAttemptAt = entry.LastAttemptAt,
@@ -184,6 +187,7 @@ public sealed class VoiceOutboxEntry
     public string? CorrelationId { get; set; }
     public string DestinationKind { get; set; } = "group";
     public long DestinationId { get; set; }
+    public long? GenerationEpoch { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public int Attempts { get; set; }
     public DateTimeOffset? LastAttemptAt { get; set; }

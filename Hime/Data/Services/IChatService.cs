@@ -15,6 +15,15 @@ public interface IChatService
     IReadOnlyList<ChatMessage> GetHistory(long userId, long? groupId = null, string? focus = null);
 
     /// <summary>
+    /// 按当前会话范围、时间表达和话题相关度检索已经归档的长期记忆。
+    /// </summary>
+    IReadOnlyList<LongTermMemoryRecord> GetRelevantMemories(
+        long userId,
+        long? groupId,
+        string? focus,
+        int maximum = 8);
+
+    /// <summary>
     /// 追加一对 user/assistant 消息。群聊按群持久化，用户身份记录在消息上。
     /// </summary>
     /// <param name="groupId">群号（null 表示私聊）</param>

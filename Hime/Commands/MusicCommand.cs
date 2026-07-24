@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Hime.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -158,56 +157,6 @@ public sealed class MusicCommand
         }
 
         await ReplyAsync(e, $"{song.Title}\n{song.Artist} - {song.Album}\n\u7f51\u6613\u4e91\u97f3\u4e50\uff1a{song.OfficialUrl}");
-    }
-
-    private static string BuildMusicCard(MusicSong song)
-    {
-        var payload = new
-        {
-            app = "com.tencent.structmsg",
-            config = new
-            {
-                autosize = true,
-                ctime = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                forward = true,
-                token = Guid.NewGuid().ToString("N"),
-                type = "normal"
-            },
-            desc = "\u97f3\u4e50",
-            extra = new
-            {
-                app_type = 1,
-                appid = 100495085,
-                msg_seq = 0,
-                uin = 0
-            },
-            meta = new
-            {
-                music = new
-                {
-                    action = "",
-                    android_pkg_name = "com.netease.cloudmusic",
-                    app_type = 1,
-                    appid = 100495085,
-                    desc = $"{song.Artist} / {song.Album}",
-                    jumpUrl = song.OfficialUrl,
-                    // Official player endpoint for the QQ card's play affordance. The bot
-                    // neither downloads nor stores the stream; unavailable tracks remain
-                    // subject to the music platform's own access controls.
-                    musicUrl = $"https://music.163.com/song/media/outer/url?id={song.Id}.mp3",
-                    preview = song.CoverUrl,
-                    sourceMsgId = "0",
-                    source_icon = "",
-                    source_url = "",
-                    tag = "\u7f51\u6613\u4e91\u97f3\u4e50",
-                    title = song.Title
-                }
-            },
-            prompt = $"[\u5206\u4eab]{song.Title}",
-            ver = "0.0.0.1",
-            view = "music"
-        };
-        return JsonSerializer.Serialize(payload);
     }
 
     private static string ExtractArgument(string? raw, params string[] prefixes)

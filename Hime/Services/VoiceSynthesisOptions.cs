@@ -174,7 +174,7 @@ public sealed class IndexTtsOptions
 
     public bool AutoStartLocalServer { get; set; }
 
-    public string BaseUrl { get; set; } = "http://127.0.0.1:9882";
+    public string BaseUrl { get; set; } = "http://127.0.0.1:9892";
 
     public string PythonExecutablePath { get; set; } = string.Empty;
 

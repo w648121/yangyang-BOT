@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Hime.Data.Models;
 using Hime.Services;
 using LiteDB;
@@ -12,6 +14,14 @@ namespace Hime.Data.Services;
 /// </summary>
 public sealed class PersonaStateService : IPersonaStateService
 {
+    private static readonly Regex WorkEndTimeRegex = new(
+        @"我\s*(?:(?:平时|通常|一般|每天|今天)\s*)?(?:(?<period>晚上|下午|早上|上午|凌晨)\s*)?(?<hour>[0-2]?\d)\s*(?:点|时|[:：])\s*(?<minute>[0-5]?\d)?\s*分?\s*下班",
+        RegexOptions.Compiled);
+
+    private static readonly Regex CallResponseRegex = new(
+        @"我说\s*(?<trigger>[^，,。！？!?；;\r\n]{1,40}?)(?:\s*[，,、；;：:]\s*|\s+)你说\s*(?<response>[^，,。！？!?；;\r\n]{1,40})",
+        RegexOptions.Compiled);
+
     private static readonly HashSet<string> UserKinds = new(StringComparer.OrdinalIgnoreCase)
     {
         "preference", "relationship", "address", "style", "boundary", "shared", "promise"
@@ -128,6 +138,13 @@ public sealed class PersonaStateService : IPersonaStateService
                 {
                     validated.ConfirmationCount = 1;
                     validated.Confidence = 0.45d;
+                    validated.Importance = validated.Kind switch
+                    {
+                        "promise" or "boundary" or "relationship" => 0.8d,
+                        "preference" or "address" => 0.7d,
+                        "topic" => 0.45d,
+                        _ => 0.55d
+                    };
                     validated.FirstProposedAt = now;
                     validated.LastConfirmedAt = now;
                     validated.IsConfirmed = RequiredConfirmations <= 1;
@@ -164,7 +181,86 @@ public sealed class PersonaStateService : IPersonaStateService
         }
     }
 
-    public string BuildPromptContext(long userId, string nickname, long? groupId, string? groupName = null)
+    public int CaptureExplicitFacts(long userId, long? groupId, string text)
+    {
+        if (!_options.Enabled || userId <= 0 || string.IsNullOrWhiteSpace(text))
+            return 0;
+
+        var captured = 0;
+        var workTime = WorkEndTimeRegex.Match(text);
+        if (workTime.Success &&
+            int.TryParse(workTime.Groups["hour"].Value, out var hour) &&
+            hour is >= 0 and <= 23)
+        {
+            var minute = int.TryParse(workTime.Groups["minute"].Value, out var parsedMinute)
+                ? parsedMinute
+                : 0;
+            var period = workTime.Groups["period"].Value;
+            if ((period is "晚上" or "下午") && hour is >= 1 and < 12)
+                hour += 12;
+            else if ((period is "早上" or "上午" or "凌晨") && hour == 12)
+                hour = 0;
+            UpsertExplicitUserFact(
+                userId,
+                "shared",
+                "work_end_time",
+                $"{hour:00}点{minute:00}分",
+                "explicit-work-time");
+            captured++;
+        }
+
+        var callResponse = CallResponseRegex.Match(text);
+        if (callResponse.Success)
+        {
+            var trigger = NormalizeFactValue(callResponse.Groups["trigger"].Value);
+            var response = NormalizeFactValue(callResponse.Groups["response"].Value);
+            if (!string.IsNullOrWhiteSpace(trigger) && !string.IsNullOrWhiteSpace(response))
+            {
+                var key = $"code_{ShortHash(trigger)}";
+                UpsertExplicitUserFact(
+                    userId,
+                    "shared",
+                    key,
+                    $"当当前用户说“{trigger}”时，按约定回答“{response}”",
+                    "explicit-call-response");
+                captured++;
+            }
+        }
+
+        if (captured > 0)
+        {
+            _logger.LogInformation(
+                "Captured {Count} explicit persona fact(s) (UserId={UserId}, GroupId={GroupId})",
+                captured,
+                userId,
+                groupId);
+        }
+        return captured;
+    }
+
+    public IReadOnlyList<PersonaMemoryFact> GetConfirmedFacts(
+        long userId,
+        long? groupId,
+        string? focus,
+        int maximum = 8)
+    {
+        if (!_options.Enabled || userId <= 0)
+            return Array.Empty<PersonaMemoryFact>();
+
+        lock (_sync)
+        {
+            return SelectFactsForPrompt(groupId, userId, DateTime.UtcNow, focus)
+                .Take(Math.Clamp(maximum, 1, 50))
+                .ToArray();
+        }
+    }
+
+    public string BuildPromptContext(
+        long userId,
+        string nickname,
+        long? groupId,
+        string? groupName = null,
+        string? focus = null)
     {
         if (!_options.Enabled)
             return string.Empty;
@@ -174,7 +270,7 @@ public sealed class PersonaStateService : IPersonaStateService
             var now = DateTime.UtcNow;
             var member = GetOrCreateMember(userId, groupId, nickname, now);
             var group = groupId.HasValue ? GetOrCreateGroup(groupId.Value, groupName, now) : null;
-            return BuildContext(member, group, userId, groupId, now);
+            return BuildContext(member, group, userId, groupId, now, focus);
         }
     }
 
@@ -190,7 +286,7 @@ public sealed class PersonaStateService : IPersonaStateService
         {
             var now = DateTime.UtcNow;
             var group = GetOrCreateGroup(groupId, groupName, now);
-            var context = BuildContext(null, group, null, groupId, now);
+            var context = BuildContext(null, group, null, groupId, now, focus: null);
             var memberCards = BuildActiveMemberCards(groupId, activeMemberIds, now);
             return string.IsNullOrWhiteSpace(memberCards)
                 ? context
@@ -203,7 +299,8 @@ public sealed class PersonaStateService : IPersonaStateService
         PersonaGroupState? group,
         long? userId,
         long? groupId,
-        DateTime now)
+        DateTime now,
+        string? focus)
     {
         var lines = new List<string>
         {
@@ -234,9 +331,7 @@ public sealed class PersonaStateService : IPersonaStateService
             lines.Add($"当前用户：{displayName}；与 Hime 的有效互动次数：{member.InteractionCount}。不要因次数本身假装亲密。");
         }
 
-        var facts = FindConfirmedFacts(groupId, userId, now)
-            .Take(Math.Clamp(_options.MaxFactsInPrompt, 1, 20))
-            .ToList();
+        var facts = SelectFactsForPrompt(groupId, userId, now, focus);
         if (facts.Count > 0)
         {
             lines.Add("已确认的连续性记忆：");
@@ -255,11 +350,180 @@ public sealed class PersonaStateService : IPersonaStateService
     {
         return Facts.Find(fact => fact.IsConfirmed)
             .Where(fact => fact.ExpiresAt is null || fact.ExpiresAt > now)
+            .Where(fact => string.IsNullOrWhiteSpace(fact.SupersededBy))
             .Where(fact =>
                 (groupId.HasValue && fact.Scope == "group" && fact.GroupId == groupId) ||
-                (userId.HasValue && fact.Scope == "user" && fact.UserId == userId && fact.GroupId == groupId))
+                (userId.HasValue && fact.Scope == "user" && fact.UserId == userId &&
+                 (fact.GroupId is null || fact.GroupId == groupId)))
             .OrderByDescending(fact => fact.LastConfirmedAt);
     }
+
+    private IReadOnlyList<PersonaMemoryFact> SelectFactsForPrompt(
+        long? groupId,
+        long? userId,
+        DateTime now,
+        string? focus)
+    {
+        var maximum = Math.Clamp(_options.MaxFactsInPrompt, 1, 20);
+        var focusTerms = ExtractFactFocusTerms(focus);
+        var scored = FindConfirmedFacts(groupId, userId, now)
+            .Select(fact =>
+            {
+                var relevance = ScoreFactRelevance(fact, focusTerms);
+                var pinned = fact.IsPinned ||
+                             fact.Source.StartsWith("explicit", StringComparison.OrdinalIgnoreCase);
+                var importance = fact.Importance > 0d
+                    ? Math.Clamp(fact.Importance, 0d, 1d)
+                    : pinned ? 0.95d : 0.5d;
+                var ageDays = Math.Max(0d, (now - fact.LastConfirmedAt).TotalDays);
+                var recency = 8d / (1d + ageDays / 30d);
+                var score = relevance * 10d +
+                            importance * 25d +
+                            fact.Confidence * 10d +
+                            Math.Min(5, fact.ConfirmationCount) +
+                            recency +
+                            (pinned ? 12d : 0d);
+                return new ScoredFact(fact, relevance, score, pinned);
+            })
+            .ToList();
+
+        var selected = new List<PersonaMemoryFact>(maximum);
+        selected.AddRange(scored
+            .Where(item => item.Relevance > 0d)
+            .OrderByDescending(item => item.Score)
+            .Select(item => item.Fact)
+            .Take(maximum));
+        selected.AddRange(scored
+            .Where(item => item.Pinned && selected.All(fact => fact.Id != item.Fact.Id))
+            .OrderByDescending(item => item.Score)
+            .Select(item => item.Fact)
+            .Take(Math.Max(0, Math.Min(2, maximum - selected.Count))));
+        selected.AddRange(scored
+            .Where(item => selected.All(fact => fact.Id != item.Fact.Id))
+            .OrderByDescending(item => item.Score)
+            .Select(item => item.Fact)
+            .Take(Math.Max(0, maximum - selected.Count)));
+
+        foreach (var fact in selected)
+        {
+            fact.AccessCount++;
+            fact.LastAccessedAt = now;
+            Facts.Upsert(fact);
+        }
+
+        return selected;
+    }
+
+    private static double ScoreFactRelevance(
+        PersonaMemoryFact fact,
+        IReadOnlyList<string> focusTerms)
+    {
+        if (focusTerms.Count == 0)
+            return 0d;
+
+        var aliases = (fact.Aliases ?? [])
+            .Concat(DefaultAliases(fact.Key))
+            .Append(fact.Key)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var searchable = $"{fact.Kind} {fact.Key} {fact.Value} {string.Join(' ', aliases)}"
+            .ToLowerInvariant();
+        var score = 0d;
+        foreach (var term in focusTerms)
+        {
+            if (aliases.Any(alias =>
+                    alias.Equals(term, StringComparison.OrdinalIgnoreCase)))
+                score += 6d;
+            else if (searchable.Contains(term, StringComparison.OrdinalIgnoreCase))
+                score += term.Length >= 4 ? 4d : 2d;
+        }
+        return score;
+    }
+
+    private static IReadOnlyList<string> ExtractFactFocusTerms(string? focus)
+    {
+        if (string.IsNullOrWhiteSpace(focus))
+            return Array.Empty<string>();
+
+        var normalized = focus.ToLowerInvariant();
+        foreach (var noise in new[] { "你还记得", "还记得", "记得", "告诉我", "请问", "什么", "多少", "了吗", "吗", "呢" })
+            normalized = normalized.Replace(noise, string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        var result = new List<string>();
+        foreach (var token in normalized.Split(
+                     [' ', '，', '。', '、', '？', '?', '！', '!', '：', ':'],
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (token.Length >= 2)
+                result.Add(token);
+            if (token.Length > 3 && token.Any(ch => ch is >= '\u3400' and <= '\u9fff'))
+            {
+                for (var index = 0; index < token.Length - 1; index++)
+                    result.Add(token.Substring(index, 2));
+            }
+        }
+        return result.Distinct(StringComparer.OrdinalIgnoreCase).Take(32).ToList();
+    }
+
+    private static IEnumerable<string> DefaultAliases(string key) =>
+        key switch
+        {
+            "work_end_time" => ["下班", "下班时间", "几点下班", "工作时间"],
+            _ when key.StartsWith("code_", StringComparison.OrdinalIgnoreCase) =>
+                ["暗号", "约定", "口令"],
+            _ => []
+        };
+
+    private void UpsertExplicitUserFact(
+        long userId,
+        string kind,
+        string key,
+        string value,
+        string source)
+    {
+        var normalizedKey = key.Trim().ToLowerInvariant();
+        var normalizedValue = NormalizeFactValue(value);
+        if (string.IsNullOrWhiteSpace(normalizedValue))
+            return;
+
+        var now = DateTime.UtcNow;
+        var id = $"explicit:user:{userId}:{kind}:{normalizedKey}";
+        lock (_sync)
+        {
+            var fact = Facts.FindById(id) ?? new PersonaMemoryFact
+            {
+                Id = id,
+                Scope = "user",
+                Kind = kind,
+                Key = normalizedKey,
+                UserId = userId,
+                GroupId = null,
+                FirstProposedAt = now
+            };
+            fact.Value = normalizedValue;
+            fact.Confidence = 1d;
+            fact.ConfirmationCount = Math.Max(RequiredConfirmations, 1);
+            fact.IsConfirmed = true;
+            fact.Source = source;
+            fact.LastConfirmedAt = now;
+            fact.ExpiresAt = null;
+            fact.Importance = 0.95d;
+            fact.IsPinned = true;
+            fact.Aliases = DefaultAliases(normalizedKey)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            Facts.Upsert(fact);
+        }
+    }
+
+    private sealed record ScoredFact(
+        PersonaMemoryFact Fact,
+        double Relevance,
+        double Score,
+        bool Pinned);
+
+    private static string ShortHash(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..12].ToLowerInvariant();
 
     private string BuildActiveMemberCards(
         long groupId,
@@ -373,6 +637,7 @@ public sealed class PersonaStateService : IPersonaStateService
             Kind = kind,
             Key = key,
             Value = value,
+            Aliases = [key],
             ExpiresAt = kind switch
             {
                 "topic" => now.AddHours(Math.Max(1, _options.TopicMemoryHours)),

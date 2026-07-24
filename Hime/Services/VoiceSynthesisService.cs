@@ -393,31 +393,50 @@ public sealed class VoiceSynthesisService
 
         try
         {
-            using var response = await client.PostAsJsonAsync(new Uri(baseUri, "tts"), request, timeout.Token);
-            if (!response.IsSuccessStatusCode)
+            for (var attempt = 1; attempt <= 2; attempt++)
             {
-                var details = await ReadHttpFailureAsync(response, timeout.Token);
-                return new(VoiceSynthesisStatus.Failed, Error: $"IndexTTS2 合成请求失败（HTTP {(int)response.StatusCode}）：{details}");
+                using var response = await client.PostAsJsonAsync(new Uri(baseUri, "tts"), request, timeout.Token);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var details = await ReadHttpFailureAsync(response, timeout.Token);
+                    var isRecoverableServerFailure = (int)response.StatusCode >= 500;
+                    if (attempt == 1 && isRecoverableServerFailure)
+                    {
+                        _logger.LogWarning(
+                            "IndexTTS2 inference returned HTTP {StatusCode}; restarting once before retry. Details={Details}",
+                            (int)response.StatusCode,
+                            details);
+                        if (await _engineCoordinator.RestartEngineAsync("index-tts2", timeout.Token))
+                            continue;
+                    }
+
+                    return new(
+                        VoiceSynthesisStatus.Failed,
+                        Error: $"IndexTTS2 合成请求失败（HTTP {(int)response.StatusCode}）：{details}");
+                }
+
+                var temporaryOutput = cachedOutput + ".tmp";
+                await using (var input = await response.Content.ReadAsStreamAsync(timeout.Token))
+                await using (var output = new FileStream(temporaryOutput, FileMode.Create, FileAccess.Write, FileShare.None))
+                    await input.CopyToAsync(output, timeout.Token);
+
+                if (!IsUsableWave(temporaryOutput))
+                {
+                    File.Delete(temporaryOutput);
+                    return new(VoiceSynthesisStatus.Failed, Error: "IndexTTS2 未返回有效 WAV 音频。");
+                }
+
+                File.Move(temporaryOutput, cachedOutput, overwrite: true);
+                _logger.LogInformation(
+                    "IndexTTS2 语音合成完成 (Voice={Voice}, Emotion={Emotion}, Attempt={Attempt}, Path={Path})",
+                    voice,
+                    emotion ?? "neutral",
+                    attempt,
+                    cachedOutput);
+                return new(VoiceSynthesisStatus.Success, cachedOutput);
             }
 
-            var temporaryOutput = cachedOutput + ".tmp";
-            await using (var input = await response.Content.ReadAsStreamAsync(timeout.Token))
-            await using (var output = new FileStream(temporaryOutput, FileMode.Create, FileAccess.Write, FileShare.None))
-                await input.CopyToAsync(output, timeout.Token);
-
-            if (!IsUsableWave(temporaryOutput))
-            {
-                File.Delete(temporaryOutput);
-                return new(VoiceSynthesisStatus.Failed, Error: "IndexTTS2 未返回有效 WAV 音频。");
-            }
-
-            File.Move(temporaryOutput, cachedOutput, overwrite: true);
-            _logger.LogInformation(
-                "IndexTTS2 语音合成完成 (Voice={Voice}, Emotion={Emotion}, Path={Path})",
-                voice,
-                emotion ?? "neutral",
-                cachedOutput);
-            return new(VoiceSynthesisStatus.Success, cachedOutput);
+            return new(VoiceSynthesisStatus.Failed, Error: "IndexTTS2 自动恢复后仍未返回音频。");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

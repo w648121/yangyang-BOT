@@ -11,16 +11,11 @@ namespace Hime.Services;
 /// </summary>
 public sealed class RecentVisualContextStore
 {
-    private static readonly string[] VisualQuestionTokens =
-    [
-        "图片", "图里", "图中", "这张图", "这个图", "看图", "识图", "图像", "截图", "照片",
-        "图片内容", "图的内容", "内容是什么", "是什么内容"
-    ];
-
     private readonly ConcurrentDictionary<VisualContextKey, RecentVisualContext> _contexts = new();
     private readonly object _persistenceGate = new();
     private readonly TimeSpan _retention;
     private readonly int _maxImages;
+    private readonly IReadOnlyList<string> _referenceMarkers;
     private readonly string _indexPath;
 
     public RecentVisualContextStore(IOptions<RecentVisualContextOptions> options)
@@ -28,6 +23,11 @@ public sealed class RecentVisualContextStore
         var value = options.Value;
         _retention = TimeSpan.FromMinutes(Math.Clamp(value.RetentionMinutes, 1, 60));
         _maxImages = Math.Clamp(value.MaxImagesPerMessage, 1, 3);
+        _referenceMarkers = value.ReferenceMarkers
+            .Where(marker => !string.IsNullOrWhiteSpace(marker))
+            .Select(marker => marker.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         _indexPath = Path.GetFullPath(string.IsNullOrWhiteSpace(value.IndexPath)
             ? "data/recent-visual-context.json"
             : value.IndexPath);
@@ -85,10 +85,10 @@ public sealed class RecentVisualContextStore
         return true;
     }
 
-    private static bool LooksLikeVisualQuestion(string prompt)
+    private bool LooksLikeVisualQuestion(string prompt)
     {
         return !string.IsNullOrWhiteSpace(prompt) &&
-               VisualQuestionTokens.Any(token => prompt.Contains(token, StringComparison.OrdinalIgnoreCase));
+               _referenceMarkers.Any(token => prompt.Contains(token, StringComparison.OrdinalIgnoreCase));
     }
 
     private readonly record struct VisualContextKey(long? GroupId, long UserId);

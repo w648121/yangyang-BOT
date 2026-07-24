@@ -1,5 +1,5 @@
 // 对话行为配置：人设、上下文、私聊触发、主动发言和自然接话。
-// 多个 AllowedGroupIds 分别控制不同功能，当前内容相同但不是重复项，可独立调整。
+// 群响应开关已经迁移到 LiteDB，通过群内 /响应 与 /停止 管理，本页不再保存群白名单。
 // 定向回复当前没有目标用户，因此已明确关闭；重新使用时再启用并配置目标。
 {
   "ConversationStyle": {
@@ -8,11 +8,25 @@
     "MaxExamplesPerPrompt": 2
   },
   "ChatHistory": {
+    "Namespace": "speaker-aware-v1",
+    "ImportLegacySessions": false,
     "RawContextDays": 3,
     "MaxRecentMessagesInPrompt": 24,
     "MaxSummaryItems": 12,
     "MaxSummaryCharacters": 1800,
     "MaxSourceMessageCharacters": 180
+  },
+  "ParticipantIdentity": {
+    "ExternalBotUserIds": [
+      2374788715
+    ]
+  },
+  "ContextAssembly": {
+    "CurrentUserTurnLimit": 8,
+    "OtherHumanTurnLimit": 2,
+    "OtherHumanTotalLimit": 6,
+    "GroupActivityScanLimit": 24,
+    "MaximumMessageCharacters": 350
   },
   "Personas": {
     "ProfileId": "yangyang",
@@ -22,6 +36,59 @@
     "CorpusFile": "data/personas/yangyang-lines.jsonl",
     "PlotKnowledgeFile": "data/personas/yangyang-plot-events.jsonl",
     "MaxPlotEvents": 3,
+    "PlotEntityAliases": {
+      "云灵谷": "云陵谷",
+      "云岭谷": "云陵谷",
+      "云陵古": "云陵谷",
+      "漂泊着": "漂泊者",
+      "央央": "秧秧",
+      "玄凌": "玄翎",
+      "玄玲": "玄翎",
+      "炽夏": "炽霞",
+      "白枝": "白芷",
+      "今洲": "今州",
+      "黑海安": "黑海岸"
+    },
+    "PlotQuestionSignals": [
+      "剧情",
+      "任务",
+      "版本",
+      "初见",
+      "第一次",
+      "相遇",
+      "发生",
+      "当时",
+      "以前",
+      "过去",
+      "经历",
+      "故事",
+      "还记得",
+      "记不记得",
+      "是哪",
+      "哪里",
+      "什么时候",
+      "为什么",
+      "来信",
+      "写信",
+      "邮件",
+      "祝福",
+      "前瞻",
+      "追月节",
+      "玄方",
+      "玄翎"
+    ],
+    "PlotWeakTerms": [
+      "秧秧",
+      "漂泊者",
+      "事情",
+      "故事",
+      "剧情",
+      "任务",
+      "版本",
+      "发生",
+      "记得",
+      "当时"
+    ],
     "MaxCorpusExamples": 2,
     "ComplianceRewriteEnabled": true,
     "ComplianceMinimumScore": 78,
@@ -59,16 +126,6 @@
   "ProactiveAgent": {
     "Enabled": true,
     "DryRun": false,
-    "AllowedGroupIds": [
-      1095402532,
-      958354615,
-      427922086,
-      1012853323,
-      829269550,
-      196119432,
-      935869005,
-      813832971
-    ],
     "ScanIntervalSeconds": 60,
     "InitialDelaySeconds": 120,
     "MaximumGroupsPerScan": 1,
@@ -97,16 +154,6 @@
   },
   "ReactiveConversation": {
     "Enabled": true,
-    "AllowedGroupIds": [
-      1095402532,
-      958354615,
-      427922086,
-      1012853323,
-      829269550,
-      196119432,
-      935869005,
-      813832971
-    ],
     "BaseReplyProbability": 0.08,
     "QuestionReplyProbability": 0.28,
     "BotNameReplyProbability": 0.35,
@@ -127,16 +174,6 @@
   },
   "ImplicitAddress": {
     "Enabled": true,
-    "AllowedGroupIds": [
-      1095402532,
-      958354615,
-      427922086,
-      1012853323,
-      829269550,
-      196119432,
-      935869005,
-      813832971
-    ],
     "BotAliases": [
       "小黄瓜",
       "秧秧",

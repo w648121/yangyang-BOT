@@ -32,8 +32,43 @@
     "Capacity": 64,
     "WorkerCount": 4
   },
+  "Jobs": {
+    "Enabled": true,
+    "PollIntervalSeconds": 2,
+    "ClaimBatchSize": 16,
+    "LeaseSeconds": 120,
+    "DisabledGroupPostponeSeconds": 60,
+    "OfflineAccountPostponeSeconds": 20,
+    "MaxActiveJobsPerUser": 20,
+    "IntentMarkers": [
+      "提醒我",
+      "提醒一下",
+      "提醒下",
+      "别忘记提醒",
+      "别忘了提醒",
+      "定个闹钟",
+      "订个闹钟",
+      "顶个闹钟",
+      "设个闹钟",
+      "设置闹钟"
+    ],
+    "CommandPrefixes": [
+      "/提醒",
+      "/任务"
+    ],
+    "EditMarkers": [
+      "改一下",
+      "修改",
+      "改成",
+      "调整",
+      "换成",
+      "变成",
+      "以后每天",
+      "每天都"
+    ]
+  },
   "ProgramUpdates": {
-    "CurrentVersion": "2026.07.22.2",
+    "CurrentVersion": "2026.07.23.10",
     "ChangeLogFile": "data/program-updates.jsonl",
     "DefaultEntries": 1,
     "MaxEntries": 8

@@ -28,6 +28,37 @@ public sealed class PersonaOptions
 
     public int MaxPlotEvents { get; set; } = 3;
 
+    /// <summary>
+    /// High-confidence typo/alias corrections used before plot retrieval.
+    /// Keeping this in configuration allows new official names to be added without rebuilding Hime.
+    /// </summary>
+    public Dictionary<string, string> PlotEntityAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["云灵谷"] = "云陵谷",
+        ["云岭谷"] = "云陵谷",
+        ["云陵古"] = "云陵谷",
+        ["漂泊着"] = "漂泊者",
+        ["央央"] = "秧秧",
+        ["玄凌"] = "玄翎",
+        ["玄玲"] = "玄翎",
+        ["炽夏"] = "炽霞",
+        ["白枝"] = "白芷",
+        ["今洲"] = "今州",
+        ["黑海安"] = "黑海岸"
+    };
+
+    public List<string> PlotQuestionSignals { get; set; } =
+    [
+        "剧情", "任务", "版本", "初见", "第一次", "相遇", "发生", "当时", "以前",
+        "过去", "经历", "故事", "还记得", "记不记得", "是哪", "哪里", "什么时候", "为什么",
+        "来信", "写信", "邮件", "祝福", "前瞻", "追月节", "玄方", "玄翎"
+    ];
+
+    public List<string> PlotWeakTerms { get; set; } =
+    [
+        "秧秧", "漂泊者", "事情", "故事", "剧情", "任务", "版本", "发生", "记得", "当时"
+    ];
+
     public int MaxCorpusExamples { get; set; } = 4;
 
     public bool ComplianceRewriteEnabled { get; set; }

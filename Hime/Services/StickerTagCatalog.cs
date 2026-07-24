@@ -26,6 +26,7 @@ public sealed class StickerTagCatalog
         _maxTagsPerSticker = Math.Clamp(configured.MaxTagsPerSticker, 1, 24);
         _logger = logger;
         Load();
+        LoadBundledSeeds();
     }
 
     public bool IsIndexed(string imagePath)
@@ -209,6 +210,72 @@ public sealed class StickerTagCatalog
         {
             _logger.LogWarning(ex, "Unable to read local sticker semantic catalog at {CatalogPath}", _catalogPath);
         }
+    }
+
+    /// <summary>
+    /// Merge curated metadata shipped with the application into the local runtime catalog.
+    /// Runtime entries always win, so an administrator's manual relabel is never overwritten
+    /// by a later build or restart.
+    /// </summary>
+    private void LoadBundledSeeds()
+    {
+        var roots = new[]
+            {
+                Path.Combine(Directory.GetCurrentDirectory(), "resources", "images", "approved"),
+                Path.Combine(AppContext.BaseDirectory, "resources", "images", "approved"),
+                Path.Combine(Path.GetDirectoryName(_catalogPath) ?? string.Empty, "..", "resources", "images", "approved")
+            }
+            .Select(path => Path.GetFullPath(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(Directory.Exists)
+            .ToList();
+
+        var added = 0;
+        foreach (var root in roots)
+        {
+            foreach (var seedPath in Directory.EnumerateFiles(root, "tags.json", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    var seeds = JsonSerializer.Deserialize<List<StickerTagCatalogEntry>>(
+                        File.ReadAllText(seedPath)) ?? [];
+                    lock (_sync)
+                    {
+                        foreach (var seed in seeds)
+                        {
+                            var key = GetKey(seed.FileName);
+                            if (string.IsNullOrWhiteSpace(key) || _entries.ContainsKey(key))
+                                continue;
+
+                            var fallback = NormalizeSingleTag(seed.FallbackEmotion);
+                            _entries[key] = seed with
+                            {
+                                FileName = key,
+                                FallbackEmotion = string.IsNullOrWhiteSpace(fallback) ? "neutral" : fallback,
+                                EmotionScores = NormalizeEmotionScores(seed.EmotionScores, fallback),
+                                Tags = NormalizeTags(seed.Tags).Take(_maxTagsPerSticker).ToList(),
+                                IntentTags = NormalizeTags(seed.IntentTags).Take(_maxTagsPerSticker).ToList(),
+                                LabelSource = "manual",
+                                CatalogVersion = CurrentCatalogVersion,
+                                UpdatedAt = seed.UpdatedAt == default ? DateTime.UtcNow : seed.UpdatedAt
+                            };
+                            added++;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Unable to read bundled sticker tag seed {SeedPath}", seedPath);
+                }
+            }
+        }
+
+        if (added <= 0)
+            return;
+
+        lock (_sync)
+            SaveUnderLock();
+        _logger.LogInformation("Merged {Count} bundled sticker tag entries into the runtime catalog.", added);
     }
 
     private void SaveUnderLock()

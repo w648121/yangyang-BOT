@@ -1,0 +1,20 @@
+// 机器人账户连接配置：每一项对应一个独立的 QQ/LLBot（Milky）连接。
+// 多个账户共用同一套 AI、语音、表情包和数据库；消息只进入一次业务管道，并从收到它的账户原路回复。
+// IsPrimary 仅决定主动发言使用哪个账户；被动回复始终使用原消息所属账户。
+{
+  "BotAccounts": {
+    "Connections": [
+      {
+        "Id": "primary",
+        "DisplayName": "小黄瓜",
+        "Enabled": true,
+        "IsPrimary": true,
+        "SelfId": 1928076256,
+        "Host": "127.0.0.1",
+        "Port": 3010,
+        "AccessToken": "",
+        "OneBotApiBaseUrl": "http://127.0.0.1:3000"
+      }
+    ]
+  }
+}

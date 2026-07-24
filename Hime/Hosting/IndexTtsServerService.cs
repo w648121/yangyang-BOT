@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net.Sockets;
+using System.Text.Json;
 using Hime.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -6,13 +8,18 @@ using Microsoft.Extensions.Options;
 
 namespace Hime.Hosting;
 
-/// <summary>按需启动 IndexTTS2，并在切回 GPT-SoVITS 时释放全部显存。</summary>
+/// <summary>
+/// Starts the local IndexTTS2 service on demand and owns its process lifetime.
+/// Startup failures retain a short output tail so port/model errors remain visible.
+/// </summary>
 public sealed class IndexTtsServerService : IHostedService, IDisposable
 {
     private readonly IndexTtsOptions _options;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<IndexTtsServerService> _logger;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly object _outputSync = new();
+    private readonly Queue<string> _processOutputTail = new();
     private Process? _process;
     private volatile bool _isReady;
 
@@ -49,6 +56,17 @@ public sealed class IndexTtsServerService : IHostedService, IDisposable
             }
 
             _isReady = false;
+            var baseUri = new Uri(_options.BaseUrl, UriKind.Absolute);
+            if (await IsTcpPortOccupiedAsync(baseUri, cancellationToken))
+            {
+                _logger.LogError(
+                    "IndexTTS2 cannot start because {Host}:{Port} is occupied by another process. " +
+                    "The occupant did not return an IndexTTS2 health response. Change VoiceSynthesis:IndexTts:BaseUrl or stop that process.",
+                    baseUri.Host,
+                    baseUri.Port);
+                return false;
+            }
+
             var workingDirectory = ResolvePath(_options.WorkingDirectory);
             var python = ResolvePath(_options.PythonExecutablePath);
             var script = ResolvePath(_options.ApiScriptPath, workingDirectory);
@@ -57,13 +75,12 @@ public sealed class IndexTtsServerService : IHostedService, IDisposable
             if (!File.Exists(python) || !File.Exists(script) || !Directory.Exists(modelDirectory))
             {
                 _logger.LogWarning(
-                    "IndexTTS2 未启动：缺少运行文件（Python={PythonExists}, Api={ApiExists}, Model={ModelExists}）",
+                    "IndexTTS2 cannot start because runtime files are missing (Python={PythonExists}, Api={ApiExists}, Model={ModelExists}).",
                     File.Exists(python), File.Exists(script), Directory.Exists(modelDirectory));
                 return false;
             }
 
             Directory.CreateDirectory(workDirectory);
-            var baseUri = new Uri(_options.BaseUrl, UriKind.Absolute);
             var startInfo = new ProcessStartInfo
             {
                 FileName = python,
@@ -85,24 +102,25 @@ public sealed class IndexTtsServerService : IHostedService, IDisposable
             if (!string.IsNullOrWhiteSpace(_options.NumbaCacheDirectory))
                 startInfo.Environment["NUMBA_CACHE_DIR"] = ResolvePath(_options.NumbaCacheDirectory);
 
+            ClearOutputTail();
             _process?.Dispose();
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             _process.OutputDataReceived += (_, eventArgs) =>
             {
                 if (!string.IsNullOrWhiteSpace(eventArgs.Data))
-                    _logger.LogDebug("IndexTTS2: {Output}", eventArgs.Data);
+                    CaptureProcessOutput("stdout", eventArgs.Data);
             };
             _process.ErrorDataReceived += (_, eventArgs) =>
             {
                 if (!string.IsNullOrWhiteSpace(eventArgs.Data))
-                    _logger.LogDebug("IndexTTS2: {Output}", eventArgs.Data);
+                    CaptureProcessOutput("stderr", eventArgs.Data);
             };
 
             if (!_process.Start())
                 return false;
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
-            _logger.LogInformation("正在启动 IndexTTS2 服务 (PID={ProcessId}, Url={BaseUrl})", _process.Id, _options.BaseUrl);
+            _logger.LogInformation("Starting IndexTTS2 service (PID={ProcessId}, Url={BaseUrl}).", _process.Id, _options.BaseUrl);
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(5, _options.StartupTimeoutSeconds)));
@@ -113,7 +131,7 @@ public sealed class IndexTtsServerService : IHostedService, IDisposable
                     if (await IsReadyAsync(timeout.Token))
                     {
                         _isReady = true;
-                        _logger.LogInformation("IndexTTS2 服务已就绪 ({BaseUrl})", _options.BaseUrl);
+                        _logger.LogInformation("IndexTTS2 service is ready ({BaseUrl}).", _options.BaseUrl);
                         return true;
                     }
                     await Task.Delay(TimeSpan.FromSeconds(2), timeout.Token);
@@ -121,10 +139,17 @@ public sealed class IndexTtsServerService : IHostedService, IDisposable
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                // 转为 false，让调用端返回清晰的启动失败信息。
+                // Convert the startup timeout into a clear false result below.
             }
 
-            _logger.LogWarning("IndexTTS2 在启动期限内未就绪。");
+            var exitCode = _process.HasExited ? _process.ExitCode.ToString() : "still-running";
+            _logger.LogWarning(
+                "IndexTTS2 did not become ready (Url={BaseUrl}, ExitCode={ExitCode}). Recent process output:{NewLine}{OutputTail}",
+                _options.BaseUrl,
+                exitCode,
+                Environment.NewLine,
+                GetOutputTail());
+            TerminateManagedProcess();
             return false;
         }
         finally
@@ -148,22 +173,13 @@ public sealed class IndexTtsServerService : IHostedService, IDisposable
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogDebug(ex, "通过 HTTP 停止 IndexTTS2 失败，将尝试终止托管进程。");
+                _logger.LogDebug(ex, "Stopping IndexTTS2 through HTTP failed; terminating the managed process instead.");
             }
 
-            try
-            {
-                if (_process is { HasExited: false })
-                    _process.Kill(entireProcessTree: true);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "终止 IndexTTS2 进程时出现异常。");
-            }
-
+            TerminateManagedProcess();
             _process?.Dispose();
             _process = null;
-            _logger.LogInformation("IndexTTS2 已停止并释放显存。");
+            _logger.LogInformation("IndexTTS2 stopped and released its process resources.");
         }
         finally
         {
@@ -171,8 +187,7 @@ public sealed class IndexTtsServerService : IHostedService, IDisposable
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken) =>
-        StopForEngineSwitchAsync(cancellationToken);
+    public Task StopAsync(CancellationToken cancellationToken) => StopForEngineSwitchAsync(cancellationToken);
 
     private async Task<bool> IsReadyAsync(CancellationToken cancellationToken)
     {
@@ -181,11 +196,71 @@ public sealed class IndexTtsServerService : IHostedService, IDisposable
             var baseUri = new Uri(_options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
             using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(baseUri, "health"));
             using var response = await _httpClientFactory.CreateClient().SendAsync(request, cancellationToken);
-            return response.IsSuccessStatusCode;
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.TryGetProperty("engine", out var engine) &&
+                   string.Equals(engine.GetString(), "index-tts2", StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
             return false;
+        }
+    }
+
+    private static async Task<bool> IsTcpPortOccupiedAsync(Uri baseUri, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(1));
+            using var client = new TcpClient();
+            await client.ConnectAsync(baseUri.Host, baseUri.Port, timeout.Token);
+            return client.Connected;
+        }
+        catch (Exception ex) when (ex is SocketException or OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    private void CaptureProcessOutput(string stream, string line)
+    {
+        _logger.LogDebug("IndexTTS2 {Stream}: {Output}", stream, line);
+        lock (_outputSync)
+        {
+            _processOutputTail.Enqueue($"[{stream}] {line}");
+            while (_processOutputTail.Count > 40)
+                _processOutputTail.Dequeue();
+        }
+    }
+
+    private void ClearOutputTail()
+    {
+        lock (_outputSync)
+            _processOutputTail.Clear();
+    }
+
+    private string GetOutputTail()
+    {
+        lock (_outputSync)
+            return _processOutputTail.Count == 0
+                ? "(no output captured)"
+                : string.Join(Environment.NewLine, _processOutputTail);
+    }
+
+    private void TerminateManagedProcess()
+    {
+        try
+        {
+            if (_process is { HasExited: false })
+                _process.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to terminate the IndexTTS2 process tree.");
         }
     }
 

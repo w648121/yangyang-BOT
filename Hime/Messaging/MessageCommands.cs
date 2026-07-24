@@ -82,6 +82,19 @@ public sealed class PlayMusicRequestCommandHandler(
     }
 }
 
+public sealed record SendSetuRequestCommand(
+    MessageReceivedEvent Message,
+    SetuRequest Request) : ICommand;
+
+public sealed class SendSetuRequestCommandHandler(
+    SetuRequestService setu) : ICommandHandler<SendSetuRequestCommand>
+{
+    public Task HandleAsync(
+        SendSetuRequestCommand command,
+        CancellationToken cancellationToken) =>
+        setu.HandleAsync(command.Message, command.Request, cancellationToken);
+}
+
 public sealed record TryTargetedInteractionCommand(
     MessageReceivedEvent Message,
     string RawText,
@@ -139,6 +152,7 @@ public sealed class TryReactiveConversationCommandHandler(
 public static class InteractionKinds
 {
     public const string PrivateAiPrompt = "private-ai-prompt";
+    public const string JobDraft = "job-draft";
 }
 
 public sealed class PrivateAiPromptContinuationHandler(

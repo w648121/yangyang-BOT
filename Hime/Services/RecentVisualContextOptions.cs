@@ -15,4 +15,11 @@ public sealed class RecentVisualContextOptions
 
     /// <summary>Bound the number of image paths retained for one message.</summary>
     public int MaxImagesPerMessage { get; set; } = 1;
+
+    /// <summary>Explicit follow-up phrases that may recover the same sender's recent image.</summary>
+    public List<string> ReferenceMarkers { get; set; } =
+    [
+        "这张图", "这个图", "上张图", "上一张图", "上面的图", "刚才那张图",
+        "图里", "图中", "照片里", "这张照片", "刚才的图片", "上面的图片"
+    ];
 }

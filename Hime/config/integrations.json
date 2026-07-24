@@ -1,7 +1,98 @@
-// 外部功能服务配置：网易云点歌与本机 GsCore 鸣潮服务。
+// 外部功能服务配置：OneBot、二次元图片、网易云点歌与本机 GsCore 鸣潮服务。
 // 对应功能启用时才需要修改端口、程序路径和超时。
 // 空令牌已省略，未配置时继续使用安全默认值。
 {
+  "OneBot": {
+    "ApiBaseUrl": "http://127.0.0.1:3000",
+    "RequestTimeoutSeconds": 30
+  },
+  "Setu": {
+    "Enabled": true,
+    "LoliconApiUrl": "https://api.lolicon.app/setu/v2",
+    "DmoeApiUrl": "https://www.dmoe.cc/random.php?return=json",
+    "LoliApiUrl": "https://www.loliapi.com/bg/?type=url",
+    "MaxImagesPerRequest": 10,
+    "RequestTimeoutSeconds": 25,
+    "UseSemanticInterpreter": true,
+    "ForwardNickname": "秧秧",
+    "KnownTags": [
+      "鸣潮",
+      "秧秧",
+      "玄翎",
+      "漂泊者",
+      "萝莉",
+      "白丝",
+      "黑丝",
+      "丝袜",
+      "兽耳",
+      "猫娘",
+      "女仆",
+      "制服",
+      "泳装",
+      "和服",
+      "旗袍",
+      "JK",
+      "初音未来",
+      "原神",
+      "崩坏星穹铁道"
+    ],
+    "QueryFillers": [
+      "一张",
+      "几张",
+      "一点",
+      "点",
+      "一些",
+      "好看",
+      "好看的",
+      "漂亮",
+      "漂亮的",
+      "新的",
+      "新",
+      "不一样",
+      "不一样的",
+      "随机",
+      "随机的",
+      "有关",
+      "有关的",
+      "相关",
+      "相关的",
+      "作品",
+      "同人作品"
+    ],
+    "VisualQuestionExclusions": [
+      "这张图",
+      "这幅图",
+      "这个图",
+      "那张图",
+      "图里",
+      "图片里",
+      "识别图片",
+      "图片内容",
+      "图是什么"
+    ],
+    "DesireMarkers": [
+      "想看",
+      "想要",
+      "看看",
+      "欣赏",
+      "找点",
+      "找张",
+      "发点",
+      "发张",
+      "来点",
+      "来张",
+      "给我看"
+    ],
+    "VisualSubjectMarkers": [
+      "图",
+      "插画",
+      "壁纸",
+      "同人",
+      "作品",
+      "立绘"
+    ],
+    "AdditionalForbiddenTags": []
+  },
   "Music": {
     "Enabled": true,
     "AutoStartLocalServer": true,
@@ -15,8 +106,7 @@
     "SelectionExpiryMinutes": 10,
     "MaxKeywordLength": 80,
     "PreferRichCard": true,
-    "UseOneBotMusicCard": true,
-    "OneBotApiBaseUrl": "http://127.0.0.1:3000"
+    "UseOneBotMusicCard": true
   },
   "GsCore": {
     "Enabled": true,

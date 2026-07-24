@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Hime.Data.Services;
 using Hime.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -42,6 +43,7 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
     private readonly ILogger<AutoVoiceDeliveryService> _logger;
     private readonly RuntimeDiagnostics _diagnostics;
     private readonly VoiceOutboxStore _outbox;
+    private readonly GroupResponseStateService _groupResponses;
     private readonly IServiceProvider _services;
     private readonly object _queueSync = new();
     private readonly List<VoiceDeliveryJob> _queue = [];
@@ -63,6 +65,7 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
         IOptions<VoiceSynthesisOptions> options,
         RuntimeDiagnostics diagnostics,
         VoiceOutboxStore outbox,
+        GroupResponseStateService groupResponses,
         IServiceProvider services,
         ILogger<AutoVoiceDeliveryService> logger)
     {
@@ -70,6 +73,7 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
         _options = options.Value;
         _diagnostics = diagnostics;
         _outbox = outbox;
+        _groupResponses = groupResponses;
         _services = services;
         _logger = logger;
     }
@@ -83,10 +87,19 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
         Func<string, CancellationToken, Task> sendAudioAsync,
         string? requestedVoice = null,
         string? context = null,
-        string? emotion = null)
+        string? emotion = null,
+        long? generationEpoch = null)
     {
         if (!_options.Enabled || !_options.AutoReplyVoiceEnabled || sendAudioAsync is null)
             return;
+
+        if (TryParseDestination(context, out var gatedKind, out var gatedId) &&
+            gatedKind == "group" &&
+            !_groupResponses.IsEnabled(gatedId))
+        {
+            _diagnostics.Increment("voice.skipped.group-disabled");
+            return;
+        }
 
         var voice = string.IsNullOrWhiteSpace(requestedVoice)
             ? _options.AutoReplyVoice
@@ -124,7 +137,8 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
                 GetPriority(context),
                 _diagnostics.CurrentCorrelationId,
                 destinationKind,
-                destinationId);
+                destinationId,
+                generationEpoch);
             if (outboxEntry is null)
             {
                 _diagnostics.Increment("voice.outbox.duplicate");
@@ -146,6 +160,7 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
             outboxEntry?.Id,
             outboxEntry?.DestinationKind,
             outboxEntry?.DestinationId ?? 0,
+            generationEpoch,
             IsRecovered: false);
         var releaseSignal = false;
         lock (_queueSync)
@@ -259,6 +274,19 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
         using var correlation = _diagnostics.PushCorrelation(job.CorrelationId ?? $"voice-{job.Sequence}");
         try
         {
+            if (string.Equals(job.DestinationKind, "group", StringComparison.OrdinalIgnoreCase) &&
+                (!_groupResponses.IsEnabled(job.DestinationId) ||
+                 (job.GenerationEpoch.HasValue &&
+                  !_groupResponses.CanDeliver(new GroupResponseLease(
+                      job.DestinationId,
+                      job.GenerationEpoch.Value)))))
+            {
+                _diagnostics.Increment("voice.skipped.group-disabled");
+                if (job.OutboxId is not null)
+                    _outbox.Discard(job.OutboxId, "group response disabled");
+                return;
+            }
+
             VoiceSynthesisResult result = new(VoiceSynthesisStatus.Failed, Error: "尚未尝试合成。");
             const int maximumAttempts = 3;
             using var synthesisOperation = _diagnostics.Begin("voice.synthesize");
@@ -361,6 +389,7 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
                     entry.Id,
                     entry.DestinationKind,
                     entry.DestinationId,
+                    entry.GenerationEpoch,
                     IsRecovered: true));
                 _queuedOutboxIds.Add(entry.Id);
                 added = true;
@@ -483,5 +512,6 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
         string? OutboxId,
         string? DestinationKind,
         long DestinationId,
+        long? GenerationEpoch,
         bool IsRecovered);
 }

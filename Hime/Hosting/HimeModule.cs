@@ -1,6 +1,7 @@
 using Hime.Commands;
 using Hime.Data;
 using Hime.Data.Services;
+using Hime.Jobs;
 using Hime.Messaging;
 using Hime.Messaging.Interactions;
 using Hime.Services;
@@ -34,15 +35,23 @@ public static class HimeModule
         // -> command/event buses). This remains a modular monolith: no HTTP or JSON
         // boundary is added between Hime features.
         services.AddSingleton<ISoraMessageAdapter, SoraMessageAdapter>();
+        services.AddOptions<ParticipantIdentityOptions>();
+        services.AddOptions<ContextAssemblyOptions>();
+        services.AddSingleton<ParticipantIdentityService>();
+        services.AddSingleton<ConversationContextAssembler>();
         services.AddSingleton<ICommandBus, InProcessCommandBus>();
         services.AddSingleton<IEventBus, InProcessEventBus>();
         services.AddSingleton<IPendingInteractionStore, LiteDbPendingInteractionStore>();
         services.AddSingleton<IInteractionManager, InteractionManager>();
         services.AddSingleton<IInteractionContinuationHandler, PrivateAiPromptContinuationHandler>();
+        services.AddSingleton<IInteractionContinuationHandler, JobDraftContinuationHandler>();
         services.AddSingleton<IMessageMiddleware, BusinessLoggingMiddleware>();
+        services.AddSingleton<IMessageMiddleware, ParticipantIdentityMiddleware>();
+        services.AddSingleton<IMessageMiddleware, GroupResponseGateMiddleware>();
         services.AddSingleton<IMessageMiddleware, PendingInteractionMiddleware>();
         services.AddSingleton<MessageMiddlewarePipeline>();
         services.AddSingleton<MessageCoordinator>();
+        services.AddSingleton<MessageCommandRouter>();
         services.AddSingleton<MessageDiagnosticsEventHandler>();
         services.AddSingleton<IEventHandler<MessageAcceptedEvent>>(provider =>
             provider.GetRequiredService<MessageDiagnosticsEventHandler>());
@@ -54,12 +63,15 @@ public static class HimeModule
         services.AddSingleton<ICommandHandler<ClearAiConversationCommand>, ClearAiConversationCommandHandler>();
         services.AddSingleton<ICommandHandler<HandleGsCoreCommand>, HandleGsCoreCommandHandler>();
         services.AddSingleton<ICommandHandler<PlayMusicRequestCommand>, PlayMusicRequestCommandHandler>();
+        services.AddSingleton<ICommandHandler<SendSetuRequestCommand>, SendSetuRequestCommandHandler>();
         services.AddSingleton<ICommandHandler<TryTargetedInteractionCommand>, TryTargetedInteractionCommandHandler>();
         services.AddSingleton<ICommandHandler<TryReactiveConversationCommand>, TryReactiveConversationCommandHandler>();
+        services.AddSingleton<ICommandHandler<ExecuteScheduledJobCommand>, ExecuteScheduledJobCommandHandler>();
 
         // 数据服务
         services.AddSingleton<IChatService, ChatService>();
         services.AddSingleton<IGroupActivityService, GroupActivityService>();
+        services.AddSingleton<GroupResponseStateService>();
         services.AddOptions<PersonaStateOptions>();
         services.AddSingleton<IPersonaStateService, PersonaStateService>();
         services.AddOptions<RelationshipTrajectoryOptions>();
@@ -105,6 +117,15 @@ public static class HimeModule
         services.AddSingleton<ImageService>();
         services.AddSingleton<OpenCodeStickerCatalogPublisher>();
         services.AddSingleton<StickerManagementService>();
+        services.AddOptions<GalleryOptions>();
+        services.AddSingleton<GalleryService>();
+        services.AddOptions<SetuOptions>();
+        services.AddSingleton<SetuIntentInterpreter>();
+        services.AddSingleton<SetuApiService>();
+        services.AddSingleton<SetuRequestService>();
+        services.AddOptions<OneBotOptions>();
+        services.AddSingleton<OneBotApiClient>();
+        services.AddSingleton<OneBotForwardMessageSender>();
         services.AddSingleton<IncomingImageStore>();
         services.AddSingleton<OllamaVisionService>();
         services.AddSingleton<RecentVisualContextStore>();
@@ -145,6 +166,15 @@ public static class HimeModule
         services.AddSingleton<ConversationMessageDispatcher>();
         services.AddOptions<ReplySchedulingOptions>();
         services.AddSingleton<ScheduledReplyDispatcher>();
+        services.AddOptions<JobOptions>();
+        services.AddSingleton<JobIntentDetector>();
+        services.AddSingleton<JobTimeParser>();
+        services.AddSingleton<JobEditIntentParser>();
+        services.AddSingleton<TemporalAnchorService>();
+        services.AddSingleton<ScheduledJobStore>();
+        services.AddSingleton<JobRequestService>();
+        services.AddSingleton<JobExecutionService>();
+        services.AddSingleton<JobSchedulerService>();
 
         // 命令实例（实例命令类必须以 Singleton 注册，且在 ScanAssembly 之前 RegisterCommandInstance）
         services.AddSingleton<AdminCommand>();
@@ -152,8 +182,11 @@ public static class HimeModule
         services.AddSingleton<AiCommand>();
         services.AddSingleton<VoiceCommand>();
         services.AddSingleton<MusicCommand>();
+        services.AddSingleton<GalleryCommand>();
+        services.AddSingleton<GroupResponseCommand>();
         services.AddSingleton<UpdateLogCommand>();
         services.AddSingleton<HelpCommand>();
+        services.AddSingleton<JobCommand>();
 
         return services;
     }

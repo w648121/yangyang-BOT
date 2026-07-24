@@ -35,6 +35,12 @@ public sealed class ImageOptions
     /// </summary>
     public int MaxEmotionImagesPerReply { get; set; } = 3;
 
+    /// <summary>
+    /// Maximum size of a local sticker that may be selected for sending. Large
+    /// animated GIFs can make Milky/QQ return code 500 even though the catalog loaded.
+    /// </summary>
+    public long MaxSendableStickerBytes { get; set; } = 5 * 1024 * 1024;
+
     /// <summary>When enabled, only explicitly curated stickers may be sent by Hime.</summary>
     public bool OnlyUseApprovedStickers { get; set; } = true;
 

@@ -9,46 +9,27 @@ namespace Hime.Services;
 /// </summary>
 public sealed class ConversationRouter
 {
-    private readonly ModelRoutingOptions _modelRouting;
+    private readonly IOptionsMonitor<ModelRoutingOptions> _modelRouting;
 
-    public ConversationRouter(IOptions<ModelRoutingOptions> modelRouting)
+    public ConversationRouter(IOptionsMonitor<ModelRoutingOptions> modelRouting)
     {
-        _modelRouting = modelRouting.Value;
+        _modelRouting = modelRouting;
     }
-
-    private static readonly string[] TimeMarkers =
-    [
-        "现在几点", "几点了", "当前时间", "什么时间", "今天几号", "今天星期", "星期几", "日期"
-    ];
-
-    private static readonly string[] TechnicalMarkers =
-    [
-        "c盘", "磁盘", "硬盘", "文件", "路径", "配置", "权限", "工具", "日志", "程序", "机器人",
-        "模型", "opencode", "api", "接口", "上下文", "记忆", "表情库", "语音", "点歌", "代码", "报错",
-        "错误", "检查", "检测", "状态", "功能"
-    ];
-
-    private static readonly string[] ComplexMarkers =
-    [
-        "分析", "方案", "设计", "架构", "排查", "比较", "优化", "原因", "为什么", "如何", "步骤",
-        "上下文", "记忆", "智能体", "agent", "opencode", "代码", "错误", "问题"
-    ];
-
-    private static readonly string[] SocialComplexityMarkers =
-    [
-        "关系", "吵架", "误会", "难过", "焦虑", "害怕", "生气", "委屈", "孤独",
-        "喜欢", "讨厌", "道歉", "后悔", "怎么办", "不知道该", "不想说"
-    ];
 
     public ConversationRoute Route(string prompt)
     {
         var text = (prompt ?? string.Empty).Trim();
         var normalized = text.ToLowerInvariant();
+        var options = _modelRouting.CurrentValue;
 
-        if (TimeMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal)))
+        if (options.TimeMarkers
+            .Where(marker => !string.IsNullOrWhiteSpace(marker))
+            .Any(marker => normalized.Contains(marker.Trim(), StringComparison.Ordinal)))
             return new ConversationRoute(ConversationMode.Factual, "时间或日期查询", AllowDecorativeMedia: false);
 
-        if (TechnicalMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal)))
+        if (options.TechnicalMarkers
+            .Where(marker => !string.IsNullOrWhiteSpace(marker))
+            .Any(marker => normalized.Contains(marker.Trim(), StringComparison.Ordinal)))
             return new ConversationRoute(ConversationMode.Technical, "程序、能力或技术问题", AllowDecorativeMedia: false);
 
         return new ConversationRoute(ConversationMode.Casual, "普通聊天", AllowDecorativeMedia: true);
@@ -60,25 +41,30 @@ public sealed class ConversationRouter
     /// </summary>
     public AiRequestProfile SelectModel(ConversationRoute route, string prompt)
     {
-        if (!_modelRouting.Enabled ||
-            string.IsNullOrWhiteSpace(_modelRouting.HighCapabilityProviderId) ||
-            string.IsNullOrWhiteSpace(_modelRouting.HighCapabilityModelId))
+        var options = _modelRouting.CurrentValue;
+        if (!options.Enabled ||
+            string.IsNullOrWhiteSpace(options.HighCapabilityProviderId) ||
+            string.IsNullOrWhiteSpace(options.HighCapabilityModelId))
         {
             return AiRequestProfile.Default;
         }
 
         var normalized = (prompt ?? string.Empty).Trim().ToLowerInvariant();
-        var technical = _modelRouting.UseHighCapabilityForTechnical && route.Mode == ConversationMode.Technical;
-        var complex = normalized.Length >= Math.Clamp(_modelRouting.ComplexPromptMinCharacters, 40, 2000) &&
-                      ComplexMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal));
-        var socialMarkerCount = SocialComplexityMarkers.Count(marker => normalized.Contains(marker, StringComparison.Ordinal));
-        var complexSocial = _modelRouting.UseHighCapabilityForComplexSocial &&
+        var technical = options.UseHighCapabilityForTechnical && route.Mode == ConversationMode.Technical;
+        var complex = normalized.Length >= Math.Clamp(options.ComplexPromptMinCharacters, 40, 2000) &&
+                      options.ComplexMarkers
+                          .Where(marker => !string.IsNullOrWhiteSpace(marker))
+                          .Any(marker => normalized.Contains(marker.Trim(), StringComparison.Ordinal));
+        var socialMarkerCount = options.SocialComplexityMarkers
+            .Where(marker => !string.IsNullOrWhiteSpace(marker))
+            .Count(marker => normalized.Contains(marker.Trim(), StringComparison.Ordinal));
+        var complexSocial = options.UseHighCapabilityForComplexSocial &&
                             route.Mode == ConversationMode.Casual &&
                             socialMarkerCount > 0 &&
-                            (normalized.Length >= Math.Clamp(_modelRouting.ComplexSocialPromptMinCharacters, 20, 500) ||
+                            (normalized.Length >= Math.Clamp(options.ComplexSocialPromptMinCharacters, 20, 500) ||
                              socialMarkerCount >= 2);
         return technical || complex || complexSocial
-            ? new AiRequestProfile(_modelRouting.HighCapabilityProviderId, _modelRouting.HighCapabilityModelId)
+            ? new AiRequestProfile(options.HighCapabilityProviderId, options.HighCapabilityModelId)
             : AiRequestProfile.Default;
     }
 

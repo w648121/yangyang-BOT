@@ -57,6 +57,12 @@ Hime/.opencode/node_modules/
 
 # 自动收集的表情、图片和待审核素材
 Hime/resources/images/
+!Hime/resources/images/
+Hime/resources/images/*
+!Hime/resources/images/approved/
+Hime/resources/images/approved/*
+!Hime/resources/images/approved/official-yangyang/
+!Hime/resources/images/approved/official-yangyang/**
 Hime/resources/path/
 Hime/resources/sticker-review/
 

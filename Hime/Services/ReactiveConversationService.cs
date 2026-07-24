@@ -32,6 +32,7 @@ public sealed class ReactiveConversationService
 
     private readonly IAiClient _ai;
     private readonly IGroupActivityService _activities;
+    private readonly GroupResponseStateService _groupResponses;
     private readonly ReactiveConversationOptions _options;
     private readonly ConversationStyleService _conversationStyle;
     private readonly PersonaRuntimeProfileService _runtimeProfile;
@@ -51,6 +52,7 @@ public sealed class ReactiveConversationService
     public ReactiveConversationService(
         IAiClient ai,
         IGroupActivityService activities,
+        GroupResponseStateService groupResponses,
         IOptions<ReactiveConversationOptions> options,
         ConversationStyleService conversationStyle,
         PersonaRuntimeProfileService runtimeProfile,
@@ -64,6 +66,7 @@ public sealed class ReactiveConversationService
     {
         _ai = ai;
         _activities = activities;
+        _groupResponses = groupResponses;
         _options = options.Value;
         _conversationStyle = conversationStyle;
         _runtimeProfile = runtimeProfile;
@@ -90,7 +93,7 @@ public sealed class ReactiveConversationService
 
         if (!_options.Enabled ||
             message.Message.SourceType != Sora.Core.Enums.MessageSourceType.Group ||
-            !_options.AllowedGroupIds.Contains(groupId) ||
+            !_groupResponses.IsEnabled(groupId) ||
             isAtBot ||
             isTargetedInteractionUser ||
             stickerReplyAlreadySent ||
@@ -216,6 +219,14 @@ public sealed class ReactiveConversationService
 
             async Task SendReplyAsync(CancellationToken sendToken)
             {
+                if (!_groupResponses.IsEnabled(groupId))
+                {
+                    _logger.LogInformation(
+                        "Cancelled delayed reactive reply because group response was stopped (GroupId={GroupId})",
+                        groupId);
+                    return;
+                }
+
                 var replyMessage = new MessageBody()
                     .AddReply(message.Message.MessageId)
                     .AddText(reply);

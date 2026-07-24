@@ -46,7 +46,7 @@
     "IndexTts": {
       "Enabled": true,
       "AutoStartLocalServer": true,
-      "BaseUrl": "http://127.0.0.1:9882",
+      "BaseUrl": "http://127.0.0.1:9892",
       "PythonExecutablePath": "D:\\PycharmProjects\\Hime\\tools\\IndexTTS2\\.venv\\Scripts\\python.exe",
       "WorkingDirectory": "D:\\PycharmProjects\\Hime\\tools\\IndexTTS2",
       "ApiScriptPath": "hime_server.py",

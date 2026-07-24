@@ -1,0 +1,12 @@
+{
+  // 本页负责鸣潮美图库：素材目录、热度门槛、随机去重和官方立绘兜底策略。
+  "Gallery": {
+    "Enabled": true,
+    "CatalogPath": "resources/gallery/catalog.json",
+    "MinimumEngagement": 5000,
+    "RecentHistorySize": 20,
+    "MaxImageBytes": 12582912,
+    "PreferHighEngagement": true,
+    "AllowOfficialFallback": true
+  }
+}

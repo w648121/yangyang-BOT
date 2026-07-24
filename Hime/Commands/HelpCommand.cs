@@ -1,5 +1,7 @@
 using System.Reflection;
+using System.Runtime.Versioning;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Sora.Command.Attributes;
 using Sora.Core.Enums;
 using Sora.Entities.Events;
@@ -7,21 +9,33 @@ using Sora.Entities.Message;
 
 namespace Hime.Commands;
 
-/// <summary>
-/// /help - 反射读取当前程序集中所有 [CommandGroup] / [Command] 特性，
-/// 自动列出可用指令及其描述。
-/// </summary>
+/// <summary>/help renders a compact adaptive command menu with a text fallback.</summary>
 [CommandGroup(Name = "help", Prefix = "/")]
-public class HelpCommand
+public sealed class HelpCommand
 {
+    private readonly ILogger<HelpCommand> _logger;
+
+    public HelpCommand(ILogger<HelpCommand> logger) => _logger = logger;
+
     [Command(
         Expressions = ["help", "帮助", "?"],
         MatchType = Sora.Core.Enums.MatchType.Full,
-        Description = "查看所有可用指令")]
+        Description = "查看自适应指令菜单")]
+    [SupportedOSPlatform("windows6.1")]
     public async ValueTask Help(MessageReceivedEvent e)
     {
-        var text = BuildHelpText();
-        var reply = new MessageBody(text);
+        var sections = BuildSections();
+        MessageBody reply;
+        try
+        {
+            var imagePath = HelpMenuRenderer.Render(sections);
+            reply = new MessageBody().AddImage(new Uri(imagePath).AbsoluteUri, ImageSubType.Normal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Help menu rendering failed; using the text fallback.");
+            reply = new MessageBody(BuildHelpText(sections));
+        }
 
         if (e.Message.SourceType == MessageSourceType.Group)
             await e.Api.SendGroupMessageAsync(e.Message.GroupId, reply);
@@ -29,53 +43,59 @@ public class HelpCommand
             await e.Api.SendFriendMessageAsync(e.Message.SenderId, reply);
     }
 
-    /// <summary>
-    /// 从当前程序集反射读取所有标记了 [CommandGroup] 的类及其内部的 [Command] 方法，
-    /// 拼接成帮助文本。每个命令组按自己的 Prefix 原样展示，不强行补 /
-    /// </summary>
-    private static string BuildHelpText()
+    internal static IReadOnlyList<HelpSection> BuildSections()
     {
-        var assembly = typeof(HelpCommand).Assembly;
-        var sb = new StringBuilder();
-        sb.AppendLine("📖 可用指令：");
+        var sections = new List<HelpSection>
+        {
+            new(
+                "二次元图片",
+                [
+                    new HelpEntry("来张涩图  来3张色图", "Lolicon 非 R18、非 AI 原图，最多 10 张"),
+                    new HelpEntry("来3张萝莉 白丝涩图", "优先按多个 tag 检索，无结果才降级 keyword"),
+                    new HelpEntry("随机涩图  要涩图", "从 DMOE / LoliAPI 随机图库合并转发")
+                ])
+        };
+        var groupTypes = typeof(HelpCommand).Assembly.GetTypes()
+            .Where(type => type.GetCustomAttribute<CommandGroupAttribute>() is not null)
+            .OrderBy(type => type.FullName, StringComparer.Ordinal);
 
-        // 找出所有带 [CommandGroup] 的类型
-        var groupTypes = assembly.GetTypes()
-            .Where(t => t.GetCustomAttribute<CommandGroupAttribute>() is not null)
-            .OrderBy(t => t.FullName);
-
-        var any = false;
         foreach (var type in groupTypes)
         {
-            var groupAttr = type.GetCustomAttribute<CommandGroupAttribute>()!;
-            var prefix = groupAttr.Prefix ?? string.Empty;       // 不补默认值，原样
-            var groupName = string.IsNullOrEmpty(groupAttr.Name) ? type.Name : groupAttr.Name;
+            var group = type.GetCustomAttribute<CommandGroupAttribute>()!;
+            var prefix = group.Prefix ?? string.Empty;
+            var commands = type.GetMethods(
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Select(method => method.GetCustomAttribute<CommandAttribute>())
+                .Where(attribute => attribute is not null)
+                .Cast<CommandAttribute>()
+                .Select(attribute => new HelpEntry(
+                    string.Join("  ", attribute.Expressions.Take(2).Select(expression => prefix + expression)),
+                    string.IsNullOrWhiteSpace(attribute.Description) ? "暂无说明" : attribute.Description.Trim()))
+                .OrderBy(entry => entry.Command, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (commands.Count == 0)
+                continue;
 
-            // 找出这个类型里所有带 [Command] 的方法（包括 static 和 instance）
-            var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance
-                                          | BindingFlags.DeclaredOnly)
-                .Where(m => m.GetCustomAttribute<CommandAttribute>() is not null)
-                .OrderBy(m => m.Name);
-
-            if (!methods.Any()) continue;
-
-            any = true;
-            sb.AppendLine();
-            sb.AppendLine($"【{groupName}】");
-
-            foreach (var method in methods)
-            {
-                var cmdAttr = method.GetCustomAttribute<CommandAttribute>()!;
-                var exprs = string.Join(" | ", cmdAttr.Expressions);
-                // 注意：实际匹配时 Sora 会把 prefix 拼到 expression 前面（即 "prefix + expr"）
-                // 这里只展示用户原始看到的触发词 + 完整形式，便于排查
-                sb.AppendLine($"  {prefix}{exprs} - {cmdAttr.Description}");
-            }
+            var name = string.IsNullOrWhiteSpace(group.Name) ? type.Name : group.Name;
+            sections.Add(new HelpSection(name, commands));
         }
 
-        if (!any)
-            sb.AppendLine("（暂无注册指令）");
+        return sections;
+    }
 
-        return sb.ToString().TrimEnd();
+    internal static string BuildHelpText(IReadOnlyList<HelpSection>? sections = null)
+    {
+        sections ??= BuildSections();
+        var text = new StringBuilder("HIME 可用指令\n");
+        foreach (var section in sections)
+        {
+            text.AppendLine().Append('[').Append(section.Name).AppendLine("]");
+            foreach (var entry in section.Entries)
+                text.Append("  ").Append(entry.Command).Append(" - ").AppendLine(entry.Description);
+        }
+        return text.ToString().TrimEnd();
     }
 }
+
+internal sealed record HelpEntry(string Command, string Description);
+internal sealed record HelpSection(string Name, IReadOnlyList<HelpEntry> Entries);

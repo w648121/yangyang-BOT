@@ -10,9 +10,6 @@ public sealed class ProactiveAgentOptions
     /// <summary>演练模式只输出决策日志，不会发送消息或消耗群额度。</summary>
     public bool DryRun { get; set; }
 
-    /// <summary>只允许这些群使用主动功能；空列表等同于全部禁用。</summary>
-    public List<long> AllowedGroupIds { get; set; } = [];
-
     public int ScanIntervalSeconds { get; set; } = 60;
     public int InitialDelaySeconds { get; set; } = 120;
     public int MaximumGroupsPerScan { get; set; } = 1;

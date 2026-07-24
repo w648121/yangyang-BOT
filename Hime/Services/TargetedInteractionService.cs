@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Hime.Data.Models;
+using Hime.Data.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Sora.Core.Enums;
@@ -38,6 +39,7 @@ public sealed class TargetedInteractionService
     private readonly IAiClient _ai;
     private readonly ImageService _images;
     private readonly TargetedInteractionOptions _options;
+    private readonly GroupResponseStateService _groupResponses;
     private readonly ConversationStyleService _conversationStyle;
     private readonly PersonaRuntimeProfileService _runtimeProfile;
     private readonly PersonaCorpusService _personaCorpus;
@@ -54,6 +56,7 @@ public sealed class TargetedInteractionService
         IAiClient ai,
         ImageService images,
         IOptions<TargetedInteractionOptions> options,
+        GroupResponseStateService groupResponses,
         ConversationStyleService conversationStyle,
         PersonaRuntimeProfileService runtimeProfile,
         PersonaCorpusService personaCorpus,
@@ -65,6 +68,7 @@ public sealed class TargetedInteractionService
         _ai = ai;
         _images = images;
         _options = options.Value;
+        _groupResponses = groupResponses;
         _conversationStyle = conversationStyle;
         _runtimeProfile = runtimeProfile;
         _personaCorpus = personaCorpus;
@@ -293,14 +297,15 @@ public sealed class TargetedInteractionService
 
     private bool IsConfiguredTargetUser(long groupId, long userId)
     {
-        // Group-specific bindings take precedence over the older pair of flat lists.
-        // This keeps existing deployments compatible while allowing each group to have
-        // its own independently scoped set of always-replied members.
+        if (!_groupResponses.IsEnabled(groupId))
+            return false;
+
+        // Group-specific bindings take precedence over the global target-user list.
+        // Group response authorization itself is stored only in LiteDB.
         if (_options.GroupTargetUserIds.TryGetValue(groupId, out var groupTargets))
             return groupTargets.Contains(userId);
 
-        return _options.AllowedGroupIds.Contains(groupId) &&
-               _options.TargetUserIds.Contains(userId);
+        return _options.TargetUserIds.Contains(userId);
     }
 
     private bool CanSend(long groupId)

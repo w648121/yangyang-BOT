@@ -18,6 +18,7 @@ public sealed class ImplicitAddressDetector
 {
     private readonly IAiClient _ai;
     private readonly IGroupActivityService _activities;
+    private readonly GroupResponseStateService _groupResponses;
     private readonly ImplicitAddressOptions _options;
     private readonly PersonaRuntimeProfileService _runtimeProfile;
     private readonly ILogger<ImplicitAddressDetector> _logger;
@@ -25,12 +26,14 @@ public sealed class ImplicitAddressDetector
     public ImplicitAddressDetector(
         IAiClient ai,
         IGroupActivityService activities,
+        GroupResponseStateService groupResponses,
         IOptions<ImplicitAddressOptions> options,
         PersonaRuntimeProfileService runtimeProfile,
         ILogger<ImplicitAddressDetector> logger)
     {
         _ai = ai;
         _activities = activities;
+        _groupResponses = groupResponses;
         _options = options.Value;
         _runtimeProfile = runtimeProfile;
         _logger = logger;
@@ -48,7 +51,7 @@ public sealed class ImplicitAddressDetector
 
         if (!_options.Enabled ||
             message.Message.SourceType != MessageSourceType.Group ||
-            !IsAllowedGroup(message.Message.GroupId) ||
+            !_groupResponses.IsEnabled(message.Message.GroupId) ||
             message.Sender?.UserId == message.SelfId)
         {
             return false;
@@ -147,9 +150,6 @@ public sealed class ImplicitAddressDetector
             return false;
         }
     }
-
-    private bool IsAllowedGroup(long groupId) =>
-        _options.AllowedGroupIds.Count == 0 || _options.AllowedGroupIds.Contains(groupId);
 
     private bool ContainsAlias(string text) =>
         _options.BotAliases.Any(alias =>

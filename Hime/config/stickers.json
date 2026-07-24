@@ -17,6 +17,7 @@
     "SessionCacheLimit": 2048,
     "StickerArchiveRetentionDays": 7,
     "MaxEmotionImagesPerReply": 3,
+    "MaxSendableStickerBytes": 5242880,
     "OnlyUseApprovedStickers": true,
     "ApprovedStickerFileNames": [
       "smile.gif"
@@ -64,7 +65,21 @@
   "RecentVisualContext": {
     "IndexPath": "data/recent-visual-context.json",
     "RetentionMinutes": 15,
-    "MaxImagesPerMessage": 1
+    "MaxImagesPerMessage": 1,
+    "ReferenceMarkers": [
+      "这张图",
+      "这个图",
+      "上张图",
+      "上一张图",
+      "上面的图",
+      "刚才那张图",
+      "图里",
+      "图中",
+      "照片里",
+      "这张照片",
+      "刚才的图片",
+      "上面的图片"
+    ]
   },
   "AnimeTagger": {
     "Enabled": true,

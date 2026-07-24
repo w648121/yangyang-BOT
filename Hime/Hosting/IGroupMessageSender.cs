@@ -19,3 +19,20 @@ public interface IGroupMessageSender
 
     Task SendFriendAudioAsync(long userId, string localPath, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Durable jobs cannot retain a native event object. This transport resolves the
+/// persisted account id at execution time and returns through that same account.
+/// </summary>
+public interface IAccountMessageSender
+{
+    bool IsAccountReady(string accountId);
+
+    Task SendTextAsync(
+        string accountId,
+        bool isGroup,
+        long targetId,
+        long? mentionUserId,
+        string text,
+        CancellationToken cancellationToken = default);
+}

@@ -16,6 +16,4 @@ public sealed class MusicOptions
     public int MaxKeywordLength { get; set; } = 80;
     public bool PreferRichCard { get; set; } = true;
     public bool UseOneBotMusicCard { get; set; } = true;
-    public string OneBotApiBaseUrl { get; set; } = "http://127.0.0.1:3000";
-    public string OneBotAccessToken { get; set; } = string.Empty;
 }

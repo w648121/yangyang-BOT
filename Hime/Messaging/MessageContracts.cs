@@ -10,6 +10,7 @@ namespace Hime.Messaging;
 /// </summary>
 public sealed record IncomingMessage(
     string Platform,
+    string AccountId,
     string CorrelationId,
     string ScopeKey,
     long ConversationKey,
@@ -21,6 +22,7 @@ public sealed record IncomingMessage(
     bool MentionsSelf,
     bool HasAnyMention,
     bool ContainsVisual,
+    IReplyChannel ReplyChannel,
     MessageReceivedEvent NativeEvent)
 {
     public bool IsGroup => GroupId.HasValue;
@@ -28,12 +30,12 @@ public sealed record IncomingMessage(
 
 public interface ISoraMessageAdapter
 {
-    IncomingMessage Adapt(MessageReceivedEvent message);
+    IncomingMessage Adapt(MessageReceivedEvent message, string accountId = "primary");
 }
 
 public sealed class SoraMessageAdapter : ISoraMessageAdapter
 {
-    public IncomingMessage Adapt(MessageReceivedEvent e)
+    public IncomingMessage Adapt(MessageReceivedEvent e, string accountId = "primary")
     {
         var senderId = e.Sender?.UserId ?? e.Message.SenderId;
         var isGroup = e.Message.SourceType == MessageSourceType.Group;
@@ -44,6 +46,7 @@ public sealed class SoraMessageAdapter : ISoraMessageAdapter
 
         return new IncomingMessage(
             "qq",
+            accountId,
             correlationId,
             scopeKey,
             isGroup ? e.Message.GroupId : unchecked(long.MinValue + senderId),
@@ -55,6 +58,7 @@ public sealed class SoraMessageAdapter : ISoraMessageAdapter
             body?.OfType<MentionSegment>().Any(mention => mention.Target == e.SelfId) == true,
             body?.OfType<MentionSegment>().Any() == true,
             body?.OfType<ImageSegment>().Any() == true,
+            new SoraReplyChannel(accountId, e),
             e);
     }
 }
