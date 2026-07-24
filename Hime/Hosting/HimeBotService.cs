@@ -609,7 +609,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
             else if (!string.IsNullOrWhiteSpace(groupAiPrompt) || containsVisual)
             {
                 await _commandBus.SendAsync(
-                    new GenerateAiReplyCommand(e, groupAiPrompt),
+                    new GenerateAiReplyCommand(incoming, groupAiPrompt),
                     cancellationToken);
             }
             else
@@ -633,7 +633,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
 
             await _commandBus.SendAsync(
                 new TryReactiveConversationCommand(
-                    e,
+                    incoming,
                     rawMessageText,
                     isBotDirected,
                     stickerResult.RandomReplySent,
@@ -711,9 +711,8 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
                     }
 
                     await _commandBus.SendAsync(
-                        new GenerateAiReplyCommand(e, prompt),
+                        new GenerateAiReplyCommand(incoming, prompt),
                         cancellationToken);
-                    _groupActivities.RecordBotReply(e.Message.GroupId, "[被动 AI 回复]");
                 }
             }
         }
@@ -816,7 +815,9 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
                         batch.Count,
                         batch.Count(item => item.ContainsVisual));
                     await _commandBus.SendAsync(
-                        new GenerateAiReplyCommand(latest.Event, prompt),
+                        new GenerateAiReplyCommand(
+                            _soraMessageAdapter.Adapt(latest.Event, conversationKey.AccountId),
+                            prompt),
                         cancellationToken);
                 }
                 catch (Exception ex)

@@ -1,5 +1,6 @@
 using Hime.Data.Models;
 using Hime.Data.Services;
+using Hime.Messaging;
 using Hime.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -19,7 +20,7 @@ public sealed class ProactiveAgentService : BackgroundService
     private readonly ProactiveContentPlanner _contentPlanner;
     private readonly GroupStickerCollector _stickers;
     private readonly AutoVoiceDeliveryService _autoVoiceDelivery;
-    private readonly IRelationshipTrajectoryService _relationshipTrajectory;
+    private readonly IConversationTurnRecorder _turnRecorder;
     private readonly ConversationMessageDispatcher _messageDispatcher;
     private readonly ScheduledReplyDispatcher _scheduledReplies;
     private readonly ProactiveAgentOptions _options;
@@ -33,7 +34,7 @@ public sealed class ProactiveAgentService : BackgroundService
         ProactiveContentPlanner contentPlanner,
         GroupStickerCollector stickers,
         AutoVoiceDeliveryService autoVoiceDelivery,
-        IRelationshipTrajectoryService relationshipTrajectory,
+        IConversationTurnRecorder turnRecorder,
         ConversationMessageDispatcher messageDispatcher,
         ScheduledReplyDispatcher scheduledReplies,
         IOptions<ProactiveAgentOptions> options,
@@ -46,7 +47,7 @@ public sealed class ProactiveAgentService : BackgroundService
         _contentPlanner = contentPlanner;
         _stickers = stickers;
         _autoVoiceDelivery = autoVoiceDelivery;
-        _relationshipTrajectory = relationshipTrajectory;
+        _turnRecorder = turnRecorder;
         _messageDispatcher = messageDispatcher;
         _scheduledReplies = scheduledReplies;
         _options = options.Value;
@@ -230,13 +231,14 @@ public sealed class ProactiveAgentService : BackgroundService
             _activities.RecordProactiveArticleSent(group.GroupId, text);
         else
             _activities.RecordProactiveSent(group.GroupId, text);
-        _relationshipTrajectory.RecordAssistantReply(
-            replyToMessageId: 0,
-            userId: 0,
-            groupId: group.GroupId,
-            content: text,
-            emotion: decision.Emotion,
-            source: "proactive-agent");
+        _turnRecorder.RecordDelivered(
+            TurnContext.ForProactive(group.GroupId, group.GroupName),
+            new DeliveredTurn(
+                text,
+                Array.Empty<string>(),
+                decision.Emotion,
+                "proactive-agent",
+                RecordGroupActivity: false));
         _logger.LogInformation(
             "已发送主动文字，中文语音已入队 (GroupId={GroupId}, Slot={Slot}/{Target}, Action={Action})",
             group.GroupId,
@@ -289,6 +291,14 @@ public sealed class ProactiveAgentService : BackgroundService
             Sora.Core.Enums.ImageSubType.Sticker,
             cancellationToken);
         _activities.RecordProactiveSent(group.GroupId, "[主动表情]");
+        _turnRecorder.RecordDelivered(
+            TurnContext.ForProactive(group.GroupId, group.GroupName),
+            new DeliveredTurn(
+                "[主动表情]",
+                [path],
+                decision.Emotion,
+                "proactive-agent",
+                RecordGroupActivity: false));
         _logger.LogInformation(
             "已发送主动表情，不附加固定文字 (GroupId={GroupId}, Slot={Slot}/{Target}, Emotion={Emotion})",
             group.GroupId,

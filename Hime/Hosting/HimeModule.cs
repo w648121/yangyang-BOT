@@ -39,6 +39,7 @@ public static class HimeModule
         services.AddOptions<ContextAssemblyOptions>();
         services.AddSingleton<ParticipantIdentityService>();
         services.AddSingleton<ConversationContextAssembler>();
+        services.AddSingleton<IConversationTurnRecorder, ConversationTurnRecorder>();
         services.AddSingleton<ICommandBus, InProcessCommandBus>();
         services.AddSingleton<IEventBus, InProcessEventBus>();
         services.AddSingleton<IPendingInteractionStore, LiteDbPendingInteractionStore>();

@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Hime.Data.Models;
 using Hime.Data.Services;
+using Hime.Messaging;
 using Hime.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -91,6 +92,8 @@ public class AiCommand
     private readonly RuntimeFactResponder _runtimeFacts;
     private readonly RuntimeDiagnostics _diagnostics;
     private readonly GroupResponseStateService _groupResponses;
+    private readonly ISoraMessageAdapter _messageAdapter;
+    private readonly IConversationTurnRecorder _turnRecorder;
     private readonly ILogger<AiCommand> _logger;
 
     public AiCommand(
@@ -116,6 +119,8 @@ public class AiCommand
         RuntimeFactResponder runtimeFacts,
         RuntimeDiagnostics diagnostics,
         GroupResponseStateService groupResponses,
+        ISoraMessageAdapter messageAdapter,
+        IConversationTurnRecorder turnRecorder,
         ILogger<AiCommand> logger)
     {
         _chat = chat;
@@ -140,6 +145,8 @@ public class AiCommand
         _runtimeFacts = runtimeFacts;
         _diagnostics = diagnostics;
         _groupResponses = groupResponses;
+        _messageAdapter = messageAdapter;
+        _turnRecorder = turnRecorder;
         _logger = logger;
     }
 
@@ -205,8 +212,12 @@ public class AiCommand
     /// <summary>
     /// 核心 AI 对话逻辑（供 /ai 命令和 @提及 共用）
     /// </summary>
-    public async Task DoChat(MessageReceivedEvent e, string prompt)
+    public Task DoChat(MessageReceivedEvent e, string prompt) =>
+        DoChat(_messageAdapter.Adapt(e), prompt);
+
+    public async Task DoChat(IncomingMessage incoming, string prompt)
     {
+        var e = incoming.NativeEvent;
         long? groupId = e.Message.SourceType == MessageSourceType.Group ? e.Message.GroupId : null;
         GroupResponseLease? responseLease = null;
         if (groupId.HasValue)
@@ -259,6 +270,13 @@ public class AiCommand
                 userId);
         }
 
+        var turn = TurnContext.FromIncoming(
+            incoming,
+            prompt,
+            nickname,
+            TurnTrigger.ExplicitAi,
+            imagePathsForTurn);
+
         var promptForAi = prompt;
         if (imagePathsForTurn.Count > 0)
         {
@@ -310,27 +328,11 @@ public class AiCommand
                     responseLease.Value.GenerationEpoch);
                 return;
             }
-            _chat.AppendTurn(
-                userId,
-                nickname,
-                prompt,
-                imagePathsForTurn,
-                verifiedReply,
-                Array.Empty<string>(),
-                assistantEmotion: null,
-                groupId);
-            _relationshipTrajectory.RecordAssistantReply(
-                e.Message.MessageId,
-                userId,
-                groupId,
-                verifiedReply,
-                "neutral",
-                "runtime-fact");
-            _personaStates.RecordAssistantReply(userId, groupId, "neutral");
             await Reply(e, verifiedReply);
+            _turnRecorder.RecordDelivered(
+                turn with { Trigger = TurnTrigger.RuntimeFact },
+                DeliveredTurn.TextOnly(verifiedReply, "neutral", "runtime-fact"));
             QueueAutomaticVoice(e, verifiedReply, emotion: "neutral", responseLease: responseLease);
-            if (groupId.HasValue)
-                _groupActivities.RecordBotReply(groupId.Value, verifiedReply);
             return;
         }
 
@@ -485,43 +487,28 @@ public class AiCommand
                 return;
             }
 
-            // 保存原始文本、情绪标签，以及收发双方涉及的本地图片路径。
-            _chat.AppendTurn(
-                userId,
-                nickname,
-                prompt,
-                imagePathsForTurn,
-                replyMedia.CleanText,
-                replyMedia.ImagePaths,
-                replyMedia.Emotion,
-                groupId);
-
-            _relationshipTrajectory.RecordAssistantReply(
-                e.Message.MessageId,
-                userId,
-                groupId,
-                replyMedia.CleanText,
-                replyMedia.Emotion,
-                "ai-reply");
+            // 文字与图片先立即送达；中文语音由后台队列完成后独立补发。
+            // 模型明确给出 [voice:xxx] 时仍尊重该声线，否则使用配置的默认秧秧中文声线。
+            await SendReply(e, replyMedia, null);
+            _turnRecorder.RecordDelivered(
+                turn,
+                new DeliveredTurn(
+                    replyMedia.CleanText,
+                    replyMedia.ImagePaths,
+                    replyMedia.Emotion,
+                    "ai-reply"));
             _relationshipTrajectory.RecordInferenceProposals(
                 e.Message.MessageId,
                 userId,
                 groupId,
                 replyMedia.MemoryProposals);
             _personaStates.ApplyMemoryProposals(userId, groupId, replyMedia.MemoryProposals);
-            _personaStates.RecordAssistantReply(userId, groupId, replyMedia.Emotion ?? "neutral");
-
-            // 文字与图片先立即送达；中文语音由后台队列完成后独立补发。
-            // 模型明确给出 [voice:xxx] 时仍尊重该声线，否则使用配置的默认秧秧中文声线。
-            await SendReply(e, replyMedia, null);
             QueueAutomaticVoice(
                 e,
                 replyMedia.CleanText,
                 replyMedia.Voice,
                 replyMedia.Emotion,
                 responseLease);
-            if (groupId.HasValue)
-                _groupActivities.RecordBotReply(groupId.Value, replyMedia.CleanText);
         }
         catch (Exception ex)
         {

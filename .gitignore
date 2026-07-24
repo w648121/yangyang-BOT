@@ -43,7 +43,9 @@ Hime/personas/interaction-profiles/
 Hime/.opencode/node_modules/
 
 # 模型、检查点和大型二进制资源
-**/models/
+# 仅忽略运行时 AI 模型；不要使用 **/models/，Windows 下它会误伤
+# Hime/Data/Models 里的 C# 领域模型源码。
+/Hime/models/
 **/checkpoints/
 **/*.onnx
 **/*.pth

@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Hime.Data.Models;
 using Hime.Data.Services;
+using Hime.Messaging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Sora.Entities.Events;
@@ -42,6 +43,7 @@ public sealed class ReactiveConversationService
     private readonly AutoVoiceDeliveryService _autoVoiceDelivery;
     private readonly ScheduledReplyDispatcher _scheduledReplies;
     private readonly ImageService _images;
+    private readonly IConversationTurnRecorder _turnRecorder;
     private readonly ILogger<ReactiveConversationService> _logger;
     private readonly object _sync = new();
     private readonly HashSet<long> _pendingGroups = [];
@@ -62,6 +64,7 @@ public sealed class ReactiveConversationService
         AutoVoiceDeliveryService autoVoiceDelivery,
         ScheduledReplyDispatcher scheduledReplies,
         ImageService images,
+        IConversationTurnRecorder turnRecorder,
         ILogger<ReactiveConversationService> logger)
     {
         _ai = ai;
@@ -76,17 +79,19 @@ public sealed class ReactiveConversationService
         _autoVoiceDelivery = autoVoiceDelivery;
         _scheduledReplies = scheduledReplies;
         _images = images;
+        _turnRecorder = turnRecorder;
         _logger = logger;
     }
 
     public async Task<ReactiveConversationResult> TryReplyAsync(
-        MessageReceivedEvent message,
+        IncomingMessage incoming,
         string rawText,
         bool isAtBot,
         bool stickerReplyAlreadySent,
         bool isTargetedInteractionUser,
         CancellationToken cancellationToken = default)
     {
+        var message = incoming.NativeEvent;
         var groupId = message.Message.GroupId;
         var userId = message.Sender?.UserId ?? message.Message.SenderId;
         var content = rawText.Trim();
@@ -108,6 +113,11 @@ public sealed class ReactiveConversationService
         try
         {
             var nickname = message.Sender?.Nickname ?? message.Member?.Nickname ?? userId.ToString();
+            var turn = TurnContext.FromIncoming(
+                incoming,
+                content,
+                nickname,
+                TurnTrigger.Reactive);
             var context = BuildContext(groupId);
             var prompt = $"""
                 Current group: {message.Group?.GroupName ?? groupId.ToString()}
@@ -238,6 +248,13 @@ public sealed class ReactiveConversationService
                         Sora.Core.Enums.ImageSubType.Sticker);
                     await message.Api.SendGroupMessageAsync(groupId, stickerMessage, sendToken);
                 }
+                _turnRecorder.RecordDelivered(
+                    turn,
+                    new DeliveredTurn(
+                        reply,
+                        sticker is null ? Array.Empty<string>() : [sticker],
+                        emotion,
+                        "reactive-conversation"));
                 _autoVoiceDelivery.Enqueue(
                     reply,
                     async (path, token) =>

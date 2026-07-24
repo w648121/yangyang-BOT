@@ -119,8 +119,32 @@ public sealed class ConversationContextAssembler(
                     "Hime",
                     "assistant",
                     turn.Assistant.Content,
-                    turn.User.UserId));
+                turn.User.UserId));
             }
+        }
+
+        // Assistant-only turns (especially proactive participation) do not have a
+        // preceding user row, so the legacy user/assistant pairing above cannot see
+        // them. Add every recent delivered assistant message and rely on AddEvidence
+        // to remove replies already emitted by the paired-turn path.
+        foreach (var assistant in scopedStored
+                     .Where(message => IsRole(message, "assistant"))
+                     .TakeLast(20))
+        {
+            var replyTarget = !string.IsNullOrWhiteSpace(assistant.TurnId)
+                ? scopedStored
+                    .LastOrDefault(message =>
+                        IsRole(message, "user") &&
+                        string.Equals(message.TurnId, assistant.TurnId, StringComparison.Ordinal))
+                    ?.UserId
+                : null;
+            AddEvidence(evidence, seen, new EvidenceLine(
+                assistant.Time,
+                0,
+                "Hime",
+                "assistant",
+                assistant.Content,
+                replyTarget));
         }
 
         var activity = groupActivities

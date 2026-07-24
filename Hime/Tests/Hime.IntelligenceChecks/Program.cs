@@ -909,9 +909,78 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
         "group context must retain speaker identity and exclude external-bot turns");
 
     var contextDatabase = architectureProvider.GetRequiredService<HimeDbContext>();
+    var turnRecorder = architectureProvider.GetRequiredService<IConversationTurnRecorder>();
+    var contextActivities = architectureProvider.GetRequiredService<IGroupActivityService>();
+    var explicitTurnId = Guid.NewGuid().ToString("N");
+    var explicitTurn = new TurnContext(
+        explicitTurnId,
+        "qq",
+        "primary",
+        $"test-explicit-{explicitTurnId}",
+        $"qq:group:{contextGroupId}",
+        "99881",
+        currentUserId,
+        "当前测试用户",
+        contextGroupId,
+        "统一轮次记录测试",
+        Array.Empty<string>(),
+        TurnTrigger.ExplicitAi,
+        DateTimeOffset.UtcNow);
+    turnRecorder.RecordDelivered(
+        explicitTurn,
+        DeliveredTurn.TextOnly("统一轮次回复已送达", "neutral", "ai-reply"));
+
+    const string proactiveProbe = "这是一条应当进入后续上下文的主动消息";
+    contextActivities.RecordProactiveSent(contextGroupId, proactiveProbe);
+    var proactiveTurn = TurnContext.ForProactive(contextGroupId, "测试群");
+    turnRecorder.RecordDelivered(
+        proactiveTurn,
+        new DeliveredTurn(
+            proactiveProbe,
+            Array.Empty<string>(),
+            "calm",
+            "proactive-agent",
+            RecordGroupActivity: false));
+
     var sessions = contextDatabase.Database.GetCollection<ChatSession>("chat_sessions");
+    var deliveredTurns = contextDatabase.Database.GetCollection<ConversationTurnRecord>("conversation_turns");
+    Assert(deliveredTurns.Exists(turn =>
+            turn.TurnId == explicitTurnId &&
+            turn.SourceMessageId == "99881" &&
+            turn.AssistantText == "统一轮次回复已送达"),
+        "the durable turn ledger must retain the exact delivered explicit reply");
+    Assert(deliveredTurns.Exists(turn =>
+            turn.TurnId == proactiveTurn.TurnId &&
+            turn.Trigger == nameof(TurnTrigger.Proactive) &&
+            turn.AssistantText == proactiveProbe),
+        "the durable turn ledger must retain proactive assistant-only turns");
     var contextSession = sessions.FindOne(session => session.GroupId == contextGroupId)
         ?? throw new InvalidOperationException("context test session was not persisted");
+    var recordedExplicit = contextSession.Messages
+        .Where(message => message.TurnId == explicitTurnId)
+        .ToArray();
+    Assert(recordedExplicit.Length == 2 &&
+           recordedExplicit.Any(message => message.Role == "user" && message.PlatformMessageId == "99881") &&
+           recordedExplicit.Any(message => message.Role == "assistant" && message.Source == "ai-reply"),
+        "a delivered explicit turn must persist one traceable user/assistant pair");
+    Assert(contextSession.Messages.Any(message =>
+            message.TurnId == proactiveTurn.TurnId &&
+            message.Role == "assistant" &&
+            message.Source == "proactive-agent" &&
+            message.Content == proactiveProbe),
+        "a delivered proactive turn must persist its real assistant text");
+    var contextAfterDeliveredTurns = contextAssembler.Build(
+        currentUserId,
+        "当前测试用户",
+        contextGroupId,
+        "主动消息");
+    Assert(string.Join('\n', contextAfterDeliveredTurns.Messages.Select(message => message.Content))
+            .Contains(proactiveProbe, StringComparison.Ordinal),
+        "assistant-only proactive turns must be visible to later context assembly");
+    Assert(contextActivities.GetRecentMessages(contextGroupId, 50)
+            .Count(message => message.IsBot && message.Content == proactiveProbe) == 1,
+        "specialized proactive accounting plus the turn recorder must not duplicate group activity");
+
     contextSession.Messages.AddRange(
     [
         new ChatMessage

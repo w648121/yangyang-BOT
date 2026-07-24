@@ -35,7 +35,23 @@ public interface IChatService
         string assistantMessage,
         IReadOnlyList<string> assistantImagePaths,
         string? assistantEmotion,
-        long? groupId = null);
+        long? groupId = null,
+        string? turnId = null,
+        string? source = null,
+        string? accountId = null,
+        string? platformMessageId = null);
+
+    /// <summary>
+    /// 追加没有直接用户输入的 assistant 消息，例如主动群聊发言。
+    /// </summary>
+    void AppendAssistantMessage(
+        long groupId,
+        string assistantMessage,
+        IReadOnlyList<string> assistantImagePaths,
+        string? assistantEmotion,
+        string? turnId = null,
+        string? source = null,
+        string? accountId = null);
 
     /// <summary>
     /// 清空会话历史。群聊会清空整个群的 AI 上下文。

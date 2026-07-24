@@ -20,27 +20,16 @@ public sealed class DispatchLegacyMessageCommandHandler :
 }
 
 public sealed record GenerateAiReplyCommand(
-    MessageReceivedEvent Message,
-    string Prompt,
-    string? GroupActivityLabel = null) : ICommand;
+    IncomingMessage Message,
+    string Prompt) : ICommand;
 
 public sealed class GenerateAiReplyCommandHandler(
-    AiCommand ai,
-    IGroupActivityService groupActivities) : ICommandHandler<GenerateAiReplyCommand>
+    AiCommand ai) : ICommandHandler<GenerateAiReplyCommand>
 {
-    public async Task HandleAsync(
+    public Task HandleAsync(
         GenerateAiReplyCommand command,
-        CancellationToken cancellationToken)
-    {
-        await ai.DoChat(command.Message, command.Prompt);
-        if (command.Message.Message.SourceType == Sora.Core.Enums.MessageSourceType.Group &&
-            !string.IsNullOrWhiteSpace(command.GroupActivityLabel))
-        {
-            groupActivities.RecordBotReply(
-                command.Message.Message.GroupId,
-                command.GroupActivityLabel);
-        }
-    }
+        CancellationToken cancellationToken) =>
+        ai.DoChat(command.Message, command.Prompt);
 }
 
 public sealed record ClearAiConversationCommand(MessageReceivedEvent Message) : ICommand;
@@ -123,29 +112,26 @@ public sealed class TryTargetedInteractionCommandHandler(
 }
 
 public sealed record TryReactiveConversationCommand(
-    MessageReceivedEvent Message,
+    IncomingMessage Message,
     string RawText,
     bool IsBotDirected,
     bool StickerReplyAlreadySent,
     bool IsTargetedInteractionUser) : ICommand;
 
 public sealed class TryReactiveConversationCommandHandler(
-    ReactiveConversationService conversations,
-    IGroupActivityService groupActivities) : ICommandHandler<TryReactiveConversationCommand>
+    ReactiveConversationService conversations) : ICommandHandler<TryReactiveConversationCommand>
 {
     public async Task HandleAsync(
         TryReactiveConversationCommand command,
         CancellationToken cancellationToken)
     {
-        var result = await conversations.TryReplyAsync(
+        await conversations.TryReplyAsync(
             command.Message,
             command.RawText,
             command.IsBotDirected,
             command.StickerReplyAlreadySent,
             command.IsTargetedInteractionUser,
             cancellationToken);
-        if (result.Sent)
-            groupActivities.RecordBotReply(command.Message.Message.GroupId, "[自然接话]");
     }
 }
 
@@ -181,7 +167,7 @@ public sealed class PrivateAiPromptContinuationHandler(
         }
 
         await commandBus.SendAsync(
-            new GenerateAiReplyCommand(context.Message.NativeEvent, prompt),
+            new GenerateAiReplyCommand(context.Message, prompt),
             cancellationToken);
     }
 }

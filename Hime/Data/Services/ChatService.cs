@@ -184,7 +184,11 @@ public partial class ChatService : IChatService
         string assistantMessage,
         IReadOnlyList<string> assistantImagePaths,
         string? assistantEmotion,
-        long? groupId = null)
+        long? groupId = null,
+        string? turnId = null,
+        string? source = null,
+        string? accountId = null,
+        string? platformMessageId = null)
     {
         lock (_sync)
         {
@@ -195,6 +199,10 @@ public partial class ChatService : IChatService
 
             session.Messages.Add(new ChatMessage
             {
+                TurnId = turnId,
+                Source = source,
+                AccountId = accountId,
+                PlatformMessageId = platformMessageId,
                 Role = "user",
                 Content = userMessage,
                 UserId = userId,
@@ -205,6 +213,9 @@ public partial class ChatService : IChatService
             });
             session.Messages.Add(new ChatMessage
             {
+                TurnId = turnId,
+                Source = source,
+                AccountId = accountId,
                 Role = "assistant",
                 Content = assistantMessage,
                 GroupId = groupId,
@@ -214,6 +225,39 @@ public partial class ChatService : IChatService
             });
             session.LastActiveAt = now;
 
+            Sessions.Upsert(session);
+        }
+    }
+
+    public void AppendAssistantMessage(
+        long groupId,
+        string assistantMessage,
+        IReadOnlyList<string> assistantImagePaths,
+        string? assistantEmotion,
+        string? turnId = null,
+        string? source = null,
+        string? accountId = null)
+    {
+        lock (_sync)
+        {
+            var session = GetOrCreateSession(0, groupId, createIfMissing: true)!;
+            var now = DateTime.UtcNow;
+            EnsurePersonaVersion(session);
+            CompactExpiredMessages(session, now);
+
+            session.Messages.Add(new ChatMessage
+            {
+                TurnId = turnId,
+                Source = source,
+                AccountId = accountId,
+                Role = "assistant",
+                Content = assistantMessage,
+                GroupId = groupId,
+                ImagePaths = assistantImagePaths.ToList(),
+                Emotion = assistantEmotion,
+                Time = now
+            });
+            session.LastActiveAt = now;
             Sessions.Upsert(session);
         }
     }
