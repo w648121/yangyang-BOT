@@ -68,7 +68,7 @@
     ]
   },
   "ProgramUpdates": {
-    "CurrentVersion": "2026.07.24.2",
+    "CurrentVersion": "2026.07.24.3",
     "ChangeLogFile": "data/program-updates.jsonl",
     "DefaultEntries": 1,
     "MaxEntries": 8

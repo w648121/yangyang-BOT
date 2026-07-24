@@ -286,6 +286,33 @@ Assert(continuityRewrite.Contains("一直惦记着这个称呼", StringCompariso
        !continuityRewrite.Contains("花田", StringComparison.Ordinal) &&
        !continuityRewrite.Contains("散步", StringComparison.Ordinal),
     "a polluted second reply should be rewritten without inheriting assistant-created scenes");
+var localComplianceClient = new TestAiClient("不应调用第二次模型");
+var localCompliance = new PersonaComplianceService(
+    localComplianceClient,
+    personaOptions,
+    runtimeProfile,
+    personaCorpus,
+    plotKnowledge,
+    NullLogger<PersonaComplianceService>.Instance);
+var locallyCleaned = await localCompliance.RefineIfNeededAsync(
+    "（微微点头）这个问题我明白了。",
+    "你明白了吗",
+    "私聊回复",
+    10001,
+    casual: true,
+    requireEmotionMarker: false);
+Assert(locallyCleaned == "这个问题我明白了。" && localComplianceClient.Calls == 0,
+    "stage directions should be removed locally without a second model request");
+var naturalRepeatedReply = await localCompliance.RefineIfNeededAsync(
+    "好啦，我知道你的意思了。",
+    "秧秧做我老婆",
+    "私聊回复",
+    10001,
+    casual: true,
+    requireEmotionMarker: false,
+    repeatedCurrentMessageCount: 2);
+Assert(naturalRepeatedReply == "好啦，我知道你的意思了。" && localComplianceClient.Calls == 0,
+    "a natural repeated reply must not be rewritten merely because it lacks a canned continuity phrase");
 var relationshipFallbackMethod = typeof(PersonaComplianceService).GetMethod(
     "BuildRelationshipBoundaryFallback", BindingFlags.NonPublic | BindingFlags.Static)
     ?? throw new InvalidOperationException("relationship fallback generator is missing");
@@ -1210,12 +1237,18 @@ file sealed class TestOptionsMonitor<T>(T value) : IOptionsMonitor<T>
 
 file sealed class TestAiClient(string response = "") : IAiClient
 {
+    public int Calls { get; private set; }
+
     public Task<string> ChatAsync(
         IReadOnlyList<ChatMessage> history,
         long senderId,
         CancellationToken ct = default,
         bool applyBoundPersona = true,
-        AiRequestProfile? requestProfile = null) => Task.FromResult(response);
+        AiRequestProfile? requestProfile = null)
+    {
+        Calls++;
+        return Task.FromResult(response);
+    }
 }
 
 file sealed class SingleHttpClientFactory(HttpClient client) : IHttpClientFactory

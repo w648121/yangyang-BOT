@@ -5,7 +5,10 @@ using Microsoft.Extensions.Options;
 
 namespace Hime.Services;
 
-/// <summary>Scores visible replies and performs one bounded rewrite only when needed.</summary>
+/// <summary>
+/// Scores visible replies, removes transport/stage artifacts locally, and uses
+/// one bounded model rewrite only for semantic persona or relationship violations.
+/// </summary>
 public sealed class PersonaComplianceService
 {
     private static readonly Regex JapaneseScript = new(@"[\u3040-\u30ff]", RegexOptions.Compiled);
@@ -216,7 +219,10 @@ public sealed class PersonaComplianceService
         int repeatedCurrentMessageCount = 1,
         CancellationToken cancellationToken = default)
     {
-        var original = raw?.Trim() ?? string.Empty;
+        // Transport leaks and stage directions are deterministic formatting
+        // defects. Clean them locally instead of paying for a second model call
+        // that can change an otherwise good answer.
+        var original = VisibleReplyTextSanitizer.Clean(raw?.Trim());
         var initial = Evaluate(original, casual, requireEmotionMarker, recentAssistantReplies, userPrompt);
         var requiresRelationshipBoundary =
             IsRelationshipStatusRequest(userPrompt) &&
@@ -225,7 +231,7 @@ public sealed class PersonaComplianceService
              ConditionalRelationshipTeasing.IsMatch(MediaMarker.Replace(original, string.Empty)) ||
              RelationshipConversationShutdown.IsMatch(MediaMarker.Replace(original, string.Empty)) ||
              RelationshipAppeasement.IsMatch(MediaMarker.Replace(original, string.Empty)));
-        var requiresRelationshipContinuityRewrite =
+        var lacksRelationshipContinuityCue =
             repeatedCurrentMessageCount > 1 &&
             IsRelationshipStatusRequest(userPrompt) &&
             !HasRelationshipContinuityCue(original);
@@ -233,12 +239,22 @@ public sealed class PersonaComplianceService
             RoleTranscriptLeak.IsMatch(original) || RolePlayAction.IsMatch(original);
         var requiresSceneRewrite =
             IsRelationshipStatusRequest(userPrompt) && ContainsUnpromptedSceneAnchor(original, userPrompt);
-        var forceRewrite = requiresRelationshipBoundary || requiresRelationshipContinuityRewrite ||
-                           requiresStructuralRewrite || requiresSceneRewrite;
+        var requiresIdentityOrLanguageRewrite =
+            (_runtime.Current.IsSimplifiedChinese && JapaneseScript.IsMatch(original)) ||
+            ContainsAny(original, "Hime", "千早爱音", "MyGO", "Soyorin", "Rikki", "秧秧·玄翎", "秧秧玄翎");
+        // Missing an explicit repetition phrase is not itself a violation. The
+        // shared SocialTurnCoordinator already supplies continuity evidence, and
+        // forcing a rewrite here was the main source of canned second replies.
+        var forceRewrite = requiresRelationshipBoundary ||
+                           requiresStructuralRewrite ||
+                           requiresSceneRewrite ||
+                           requiresIdentityOrLanguageRewrite;
         SetLast(initial);
         var options = _options.CurrentValue;
+        var minimumScore = Math.Clamp(options.ComplianceMinimumScore, 40, 100);
         if (!options.ComplianceRewriteEnabled ||
-            (!forceRewrite && initial.Score >= Math.Clamp(options.ComplianceMinimumScore, 40, 100)) ||
+            !forceRewrite ||
+            initial.Score >= minimumScore ||
             string.IsNullOrWhiteSpace(original))
             return original;
 
@@ -295,7 +311,7 @@ public sealed class PersonaComplianceService
             rewritten = VisibleReplyTextSanitizer.Clean(rewritten);
             var revised = Evaluate(rewritten, casual, requireEmotionMarker, recentAssistantReplies, userPrompt) with { Rewritten = true };
             var continuityRecovered =
-                requiresRelationshipContinuityRewrite &&
+                lacksRelationshipContinuityCue &&
                 HasRelationshipContinuityCue(rewritten);
             if (!string.IsNullOrWhiteSpace(rewritten) &&
                 (revised.Score > initial.Score ||
@@ -319,14 +335,6 @@ public sealed class PersonaComplianceService
         {
             _logger.LogWarning(
                 "Persona compliance replaced a deferred relationship acceptance with a bounded fallback (Scene={Scene}).",
-                scene);
-            return BuildRelationshipBoundaryFallback(original, requireEmotionMarker, repeatedCurrentMessageCount);
-        }
-
-        if (requiresRelationshipContinuityRewrite)
-        {
-            _logger.LogWarning(
-                "Persona compliance replaced a context-free repeated relationship reply with a continuity fallback (Scene={Scene}).",
                 scene);
             return BuildRelationshipBoundaryFallback(original, requireEmotionMarker, repeatedCurrentMessageCount);
         }
