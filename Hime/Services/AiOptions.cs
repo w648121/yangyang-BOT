@@ -21,7 +21,7 @@ public class AiOptions
     /// <summary>单次请求最大输出 token</summary>
     public int MaxOutputTokens { get; set; } = 1024;
 
-    /// <summary>生成随机度；MiniMax 对话模型建议保留适度变化。</summary>
+    /// <summary>生成随机度；具体范围和建议值由当前模型供应商决定。</summary>
     public double Temperature { get; set; } = 0.85;
 
     /// <summary>核采样范围。</summary>

@@ -17,9 +17,9 @@ public sealed class ModelRoutingOptions
 
     public int ComplexPromptMinCharacters { get; set; } = 120;
 
-    public string HighCapabilityProviderId { get; set; } = "hime-minimax";
+    public string HighCapabilityProviderId { get; set; } = "hime-glm";
 
-    public string HighCapabilityModelId { get; set; } = "MiniMax-M3";
+    public string HighCapabilityModelId { get; set; } = "glm-5.2";
 
     public List<string> TimeMarkers { get; set; } =
     [

@@ -92,11 +92,23 @@ public class AnthropicClientWrapper : IAiClient
             body = new Dictionary<string, object?>
             {
                 ["model"] = model,
-                ["max_completion_tokens"] = _options.MaxOutputTokens,
                 ["temperature"] = Math.Clamp(_options.Temperature, 0.01, 1.0),
                 ["top_p"] = Math.Clamp(_options.TopP, 0.01, 1.0),
                 ["messages"] = BuildOpenAiMessages(history, systemPrompt)
             };
+            if (IsGlmModel(model))
+            {
+                // GLM's compatible endpoint documents max_tokens rather than
+                // max_completion_tokens. Ordinary chat disables deep thinking so
+                // reasoning cannot consume the whole budget and leave content empty.
+                body["max_tokens"] = _options.MaxOutputTokens;
+                body["thinking"] = new { type = "disabled" };
+            }
+            else
+            {
+                body["max_completion_tokens"] = _options.MaxOutputTokens;
+            }
+
             if (IsMiniMaxModel(model))
             {
                 // MiniMax reasoning models otherwise embed <think> in content.
@@ -143,6 +155,10 @@ public class AnthropicClientWrapper : IAiClient
         !string.IsNullOrWhiteSpace(model) &&
         (model.Equals("M2-her", StringComparison.OrdinalIgnoreCase) ||
          model.StartsWith("MiniMax-", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsGlmModel(string? model) =>
+        !string.IsNullOrWhiteSpace(model) &&
+        model.StartsWith("glm-", StringComparison.OrdinalIgnoreCase);
 
     private static List<object> BuildOpenAiMessages(
         IReadOnlyList<HimeChatMessage> history,

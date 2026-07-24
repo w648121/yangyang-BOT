@@ -117,15 +117,15 @@ Assert(fallbackResult.MatchMode == "keyword-fallback" &&
        fallbackHandler.RequestUris[1].Query.Contains("keyword=", StringComparison.Ordinal),
     "keyword request must happen only after the tag request returns no acceptable data");
 Assert(configuration["AI:Protocol"] == "OpenAI" &&
-       configuration["AI:BaseUrl"] == "https://api.minimaxi.com/v1" &&
-       configuration["AI:Model"] == "MiniMax-M3",
-    "the direct cloud fallback should use MiniMax M3");
+       configuration["AI:BaseUrl"] == "https://open.bigmodel.cn/api/paas/v4" &&
+       configuration["AI:Model"] == "glm-5.2",
+    "the direct cloud fallback should use GLM 5.2");
 using (var openCodeConfig = JsonDocument.Parse(File.ReadAllText("opencode.json")))
 {
     var rootModel = openCodeConfig.RootElement.GetProperty("model").GetString();
     var agentModel = openCodeConfig.RootElement.GetProperty("agent").GetProperty("hime-qq").GetProperty("model").GetString();
-    Assert(rootModel == "hime-minimax/MiniMax-M3" && agentModel == rootModel,
-        "OpenCode root and hime-qq agent should both use MiniMax M3");
+    Assert(rootModel == "hime-glm/glm-5.2" && agentModel == rootModel,
+        "OpenCode root and hime-qq agent should both use GLM 5.2");
 }
 
 AnimeTaggerOptions configuredTagger =
@@ -154,18 +154,18 @@ var router = new ConversationRouter(new TestOptionsMonitor<ModelRoutingOptions>(
     Enabled = true,
     UseHighCapabilityForTechnical = true,
     ComplexPromptMinCharacters = 120,
-    HighCapabilityProviderId = "hime-minimax",
-    HighCapabilityModelId = "MiniMax-M3"
+    HighCapabilityProviderId = "hime-glm",
+    HighCapabilityModelId = "glm-5.2"
 }));
 
 Assert(router.Route("hello").Mode == ConversationMode.Casual, "ordinary chat should be casual");
 Assert(router.Route("opencode configuration check").Mode == ConversationMode.Technical, "technical marker should select technical mode");
 var technical = router.Route("opencode configuration check");
 Assert(!technical.AllowDecorativeMedia, "technical mode must disable decorative media");
-Assert(router.SelectModel(technical, "opencode configuration check").ModelId == "MiniMax-M3", "technical mode should select MiniMax M3");
+Assert(router.SelectModel(technical, "opencode configuration check").ModelId == "glm-5.2", "technical mode should select GLM 5.2");
 Assert(!router.SelectModel(router.Route("hello"), "hello").HasExplicitModel, "ordinary chat must keep default model");
 var nuancedSocialPrompt = "我和朋友因为一场误会吵架了，现在既难过又有点后悔，不知道该怎么把真正想说的话讲清楚。";
-Assert(router.SelectModel(router.Route(nuancedSocialPrompt), nuancedSocialPrompt).ModelId == "MiniMax-M3",
+Assert(router.SelectModel(router.Route(nuancedSocialPrompt), nuancedSocialPrompt).ModelId == "glm-5.2",
     "nuanced emotional conversation should select the higher-capability model");
 
 var styleOptions = new TestOptionsMonitor<ConversationStyleOptions>(new ConversationStyleOptions
