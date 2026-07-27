@@ -124,34 +124,55 @@ public sealed class JobOptions
     /// Natural-language markers that opt an ordinary message into reminder parsing.
     /// Commands remain stable protocol entry points; this list can be extended without recompiling.
     /// </summary>
-    public List<string> IntentMarkers { get; set; } =
-    [
-        "提醒我",
-        "提醒一下",
-        "提醒下",
-        "别忘记提醒",
-        "别忘了提醒",
-        "定个闹钟",
-        "订个闹钟",
-        "顶个闹钟",
-        "设个闹钟",
-        "设置闹钟"
-    ];
+    public List<string> IntentMarkers { get; set; } = [];
 
-    public List<string> CommandPrefixes { get; set; } = ["/提醒", "/任务"];
+    public List<string> CommandPrefixes { get; set; } = [];
 
     /// <summary>Natural-language markers that opt a reply or quoted reminder into edit parsing.</summary>
-    public List<string> EditMarkers { get; set; } =
-    [
-        "改一下",
-        "修改",
-        "改成",
-        "调整",
-        "换成",
-        "变成",
-        "以后每天",
-        "每天都"
-    ];
+    public List<string> EditMarkers { get; set; } = [];
+
+    public List<string> EditStripMarkers { get; set; } = [];
+
+    public List<string> EditLeadInMarkers { get; set; } = [];
+
+    public Dictionary<string, string> InputNormalizationReplacements { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public List<string> AssistantAliases { get; set; } = [];
+
+    public List<string> ContentRemovalMarkers { get; set; } = [];
+
+    public List<string> TemporalRemovalMarkers { get; set; } = [];
+
+    public List<string> EventNameNoiseWords { get; set; } = [];
+
+    public List<string> EventNameSuffixes { get; set; } = [];
+
+    public Dictionary<string, List<string>> TemporalFactAliases { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public string ReminderUsageHint { get; set; } = string.Empty;
+
+    public string EventAnchorPromptExample { get; set; } = string.Empty;
+
+    public bool IsValid() =>
+        !Enabled ||
+        (PollIntervalSeconds > 0 &&
+         ClaimBatchSize > 0 &&
+         LeaseSeconds > 0 &&
+         MaxActiveJobsPerUser > 0 &&
+         IntentMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         CommandPrefixes.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         EditMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         EditStripMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         EditLeadInMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         AssistantAliases.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         ContentRemovalMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         TemporalRemovalMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         EventNameNoiseWords.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         EventNameSuffixes.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+         !string.IsNullOrWhiteSpace(ReminderUsageHint) &&
+         !string.IsNullOrWhiteSpace(EventAnchorPromptExample));
 }
 
 public sealed record JobScheduleSpec(

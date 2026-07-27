@@ -38,6 +38,9 @@ public static class HimeModule
         services.AddOptions<ParticipantIdentityOptions>();
         services.AddOptions<ContextAssemblyOptions>();
         services.AddSingleton<ParticipantIdentityService>();
+        services.AddOptions<ConversationFocusOptions>();
+        services.AddSingleton<ConversationTopicGraph>();
+        services.AddSingleton<ConversationFocusResolver>();
         services.AddSingleton<ConversationContextAssembler>();
         services.AddSingleton<IConversationTurnRecorder, ConversationTurnRecorder>();
         services.AddSingleton<ICommandBus, InProcessCommandBus>();
@@ -49,6 +52,7 @@ public static class HimeModule
         services.AddSingleton<IMessageMiddleware, BusinessLoggingMiddleware>();
         services.AddSingleton<IMessageMiddleware, ParticipantIdentityMiddleware>();
         services.AddSingleton<IMessageMiddleware, GroupResponseGateMiddleware>();
+        services.AddSingleton<IMessageMiddleware, ConversationFocusMiddleware>();
         services.AddSingleton<IMessageMiddleware, PendingInteractionMiddleware>();
         services.AddSingleton<MessageMiddlewarePipeline>();
         services.AddSingleton<MessageCoordinator>();
@@ -59,27 +63,31 @@ public static class HimeModule
         services.AddSingleton<IEventHandler<MessageCompletedEvent>>(provider =>
             provider.GetRequiredService<MessageDiagnosticsEventHandler>());
 
-        services.AddSingleton<ICommandHandler<DispatchLegacyMessageCommand>, DispatchLegacyMessageCommandHandler>();
         services.AddSingleton<ICommandHandler<GenerateAiReplyCommand>, GenerateAiReplyCommandHandler>();
         services.AddSingleton<ICommandHandler<ClearAiConversationCommand>, ClearAiConversationCommandHandler>();
         services.AddSingleton<ICommandHandler<HandleGsCoreCommand>, HandleGsCoreCommandHandler>();
         services.AddSingleton<ICommandHandler<PlayMusicRequestCommand>, PlayMusicRequestCommandHandler>();
         services.AddSingleton<ICommandHandler<SendSetuRequestCommand>, SendSetuRequestCommandHandler>();
-        services.AddSingleton<ICommandHandler<TryTargetedInteractionCommand>, TryTargetedInteractionCommandHandler>();
         services.AddSingleton<ICommandHandler<TryReactiveConversationCommand>, TryReactiveConversationCommandHandler>();
         services.AddSingleton<ICommandHandler<ExecuteScheduledJobCommand>, ExecuteScheduledJobCommandHandler>();
 
         // 数据服务
         services.AddSingleton<IChatService, ChatService>();
+        services.AddSingleton<ReplyLearningService>();
         services.AddSingleton<IGroupActivityService, GroupActivityService>();
         services.AddSingleton<GroupResponseStateService>();
         services.AddOptions<PersonaStateOptions>();
         services.AddSingleton<IPersonaStateService, PersonaStateService>();
         services.AddOptions<RelationshipTrajectoryOptions>();
+        services.AddOptions<RelationshipLanguageOptions>();
         services.AddSingleton<IRelationshipTrajectoryService, RelationshipTrajectoryService>();
 
         // 人设系统（基于 appsettings.json 的 "Personas" 节点 + personas/*.md）
         services.AddOptions<PersonaOptions>();
+        services.AddOptions<PersonaCorpusRoutingOptions>();
+        services.AddOptions<PersonaPresenceOptions>();
+        services.AddOptions<PersonaComplianceRuleOptions>();
+        services.AddOptions<SocialIntelligenceOptions>();
         services.AddSingleton<PersonaRegistry>();
         services.AddSingleton<PersonaRuntimeProfileService>();
         services.AddSingleton<PersonaCorpusService>();
@@ -91,18 +99,32 @@ public static class HimeModule
         services.AddOptions<AiOptions>();
         services.AddOptions<OpenCodeAgentOptions>();
         services.AddOptions<ModelRoutingOptions>();
+        services.AddOptions<ResponsePolicyOptions>();
         services.AddSingleton<AnthropicClientWrapper>();
         services.AddSingleton<OpenCodeServerService>();
+        services.AddSingleton<KnowledgeEvidenceService>();
         services.AddSingleton<OpenCodeAgentClient>();
         services.AddSingleton<IAiClient>(provider => provider.GetRequiredService<OpenCodeAgentClient>());
         services.AddSingleton<AnthropicChatClientAdapter>();
         services.AddSingleton<ConversationRouter>();
         services.AddOptions<DialoguePlanningOptions>();
+        services.AddOptions<EmotionalPragmaticsOptions>();
+        services.AddSingleton<EmotionalPragmaticsPlanner>();
+        services.AddSingleton<EmotionalReplyRefinementService>();
+        services.AddSingleton<SocialIntentAnalyzer>();
+        services.AddSingleton<SocialTurnStrategyService>();
+        services.AddOptions<GroupSceneAwarenessOptions>();
+        services.AddSingleton<GroupSceneAwarenessService>();
+        services.AddOptions<GroupChatInvestigatorOptions>();
+        services.AddSingleton<GroupChatInvestigatorService>();
+        services.AddOptions<ForwardMessageIngestOptions>();
+        services.AddSingleton<ForwardMessageIngestService>();
         services.AddSingleton<SocialTurnCoordinator>();
+        services.AddSingleton<ReplyCandidateJudgeService>();
         services.AddOptions<ConversationStyleOptions>();
         services.AddSingleton<ConversationStyleService>();
+        services.AddSingleton<PersonaPresenceService>();
         services.AddSingleton<PersonaComplianceService>();
-        services.AddSingleton<RuntimeFactResponder>();
         services.AddSingleton<IntelligenceSelfTestService>();
         services.AddSingleton<ProactiveGroupAgent>();
         services.AddSingleton<GroupConversationStateMachine>();
@@ -113,6 +135,9 @@ public static class HimeModule
         services.AddOptions<StickerVisionOptions>();
         services.AddOptions<AnimeTaggerOptions>();
         services.AddOptions<StickerTagOptions>();
+        services.AddOptions<StickerLabelVocabularyOptions>();
+        services.AddSingleton<StickerLabelVocabulary>();
+        services.AddSingleton<StickerRequestParser>();
         services.AddOptions<OllamaVisionOptions>();
         services.AddOptions<RecentVisualContextOptions>();
         services.AddSingleton<AnimeStickerTagger>();
@@ -143,10 +168,8 @@ public static class HimeModule
         // 本地基础 TTS + RVC 音色转换
         services.AddOptions<VoiceSynthesisOptions>();
         services.AddOptions<ProactiveAgentOptions>();
-        services.AddOptions<TargetedInteractionOptions>();
         services.AddOptions<ReactiveConversationOptions>();
         services.AddOptions<PrivateConversationOptions>();
-        services.AddOptions<ImplicitAddressOptions>();
         services.AddOptions<MusicOptions>();
         services.AddSingleton<VoiceSynthesisService>();
         services.AddSingleton<VoiceCacheMaintenanceService>();
@@ -156,9 +179,8 @@ public static class HimeModule
         services.AddSingleton<GptSoVitsServerService>();
         services.AddSingleton<IndexTtsServerService>();
         services.AddSingleton<VoiceEngineCoordinator>();
-        services.AddSingleton<TargetedInteractionService>();
         services.AddSingleton<ReactiveConversationService>();
-        services.AddSingleton<ImplicitAddressDetector>();
+        services.AddSingleton<ExplicitAiRequestService>();
         services.AddSingleton<NcmMusicServerService>();
         services.AddSingleton<NcmMusicService>();
         services.AddSingleton<OneBotMusicCardSender>();
@@ -189,6 +211,8 @@ public static class HimeModule
         services.AddSingleton<GroupResponseCommand>();
         services.AddSingleton<UpdateLogCommand>();
         services.AddSingleton<HelpCommand>();
+        services.AddSingleton<LearningCommand>();
+        services.AddSingleton<ReplyDiagnosticsCommand>();
         services.AddSingleton<JobCommand>();
 
         return services;

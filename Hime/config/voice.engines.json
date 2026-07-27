@@ -27,6 +27,16 @@
     "DefaultVoice": "yangyang-indextts2-faithful-a",
     "AutoReplyVoiceEnabled": true,
     "AutoReplyVoice": "yangyang-indextts2-faithful-a",
+    "EmotionComparisonVoice": "yangyang-indextts2-faithful-a-emotion15",
+    "VoiceAliases": {
+      "yangyang": "yangyang-indextts2-faithful-a"
+    },
+    "EmotionAliases": {
+      "proud": "happy",
+      "embarrassed": "shy",
+      "angry": "serious",
+      "surprised": "happy"
+    },
     "AutoReplySpeakChineseOnly": true,
     "AutoReplyQueueCapacity": 8,
     "AutoReplyMaxQueueAgeSeconds": 30,
@@ -54,7 +64,58 @@
       "WorkDirectory": "runtime/hime-api",
       "NumbaCacheDirectory": "D:\\tmp\\hime-numba-cache",
       "StartupTimeoutSeconds": 240,
-      "RequestTimeoutSeconds": 360
+      "RequestTimeoutSeconds": 360,
+      "EmotionVectors": [
+        {
+          "Markers": ["excited", "兴奋", "激动"],
+          "Values": [0.65, 0.0, 0.0, 0.0, 0.0, 0.0, 0.15, 0.0]
+        },
+        {
+          "Markers": ["happy", "joy", "开心", "喜悦", "proud", "得意"],
+          "Values": [0.62, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        },
+        {
+          "Markers": ["annoy", "烦", "不耐"],
+          "Values": [0.0, 0.42, 0.0, 0.0, 0.12, 0.0, 0.0, 0.0]
+        },
+        {
+          "Markers": ["angry", "anger", "生气", "愤怒"],
+          "Values": [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        },
+        {
+          "Markers": ["melanch", "忧郁", "孤独", "失落"],
+          "Values": [0.0, 0.0, 0.18, 0.0, 0.0, 0.58, 0.0, 0.0]
+        },
+        {
+          "Markers": ["sad", "悲", "难过"],
+          "Values": [0.0, 0.0, 0.62, 0.0, 0.0, 0.2, 0.0, 0.0]
+        },
+        {
+          "Markers": ["fear", "afraid", "害怕", "恐惧", "anxious", "焦虑"],
+          "Values": [0.0, 0.0, 0.0, 0.58, 0.0, 0.0, 0.0, 0.0]
+        },
+        {
+          "Markers": ["disgust", "嫌弃", "厌恶"],
+          "Values": [0.0, 0.0, 0.0, 0.0, 0.58, 0.0, 0.0, 0.0]
+        },
+        {
+          "Markers": ["surpris", "惊", "震惊"],
+          "Values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.62, 0.0]
+        },
+        {
+          "Markers": ["shy", "embarrass", "害羞", "尴尬"],
+          "Values": [0.2, 0.0, 0.0, 0.12, 0.0, 0.0, 0.0, 0.28]
+        },
+        {
+          "Markers": ["comfort", "安慰", "gentle", "温柔"],
+          "Values": [0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.48]
+        },
+        {
+          "Markers": ["serious", "严肃", "认真"],
+          "Values": [0.0, 0.08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.42]
+        }
+      ],
+      "FallbackEmotionVector": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.35]
     },
     "BaseTts": {
       "ExecutablePath": "powershell.exe",

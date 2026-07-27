@@ -35,7 +35,7 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
         RegexOptions.Compiled);
 
     private static readonly Regex DestinationContext = new(
-        @"^(?:(?:proactive|reactive|targeted)-)?(?<kind>group|friend):(?<id>\d+)$",
+        @"^(?:(?:proactive|reactive)-)?(?<kind>group|friend):(?<id>\d+)$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly VoiceSynthesisService _voiceSynthesis;
@@ -438,8 +438,6 @@ public sealed class AutoVoiceDeliveryService : BackgroundService
             return 3;
         if (value.StartsWith("reactive-", StringComparison.OrdinalIgnoreCase))
             return 2;
-        if (value.StartsWith("targeted-", StringComparison.OrdinalIgnoreCase))
-            return 1;
         return 0;
     }
 

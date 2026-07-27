@@ -44,6 +44,11 @@ public sealed class GroupActivityMessage
     /// <summary>True when this entry was sent by Hime rather than a group member.</summary>
     public bool IsBot { get; set; }
 
+    /// <summary>Native platform message ID. Legacy/activity-only bot entries may be zero.</summary>
+    public long MessageId { get; set; }
+
+    public string AccountId { get; set; } = string.Empty;
+
     public long UserId { get; set; }
 
     public string Nickname { get; set; } = string.Empty;
@@ -60,6 +65,19 @@ public sealed class GroupActivityMessage
 
     /// <summary>Safe WDv3 expression tags that explain the local emotion hint.</summary>
     public List<string> StickerTags { get; set; } = [];
+
+    public long? ReplyToMessageId { get; set; }
+
+    public long? ReplyToUserId { get; set; }
+
+    /// <summary>Visible text copied from the platform quote/reply card, when available.</summary>
+    public string QuotedText { get; set; } = string.Empty;
+
+    public List<long> MentionedUserIds { get; set; } = [];
+
+    public string TopicId { get; set; } = string.Empty;
+
+    public List<long> ConversationParticipants { get; set; } = [];
 
     public DateTime Time { get; set; }
 }

@@ -12,14 +12,18 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Sora.Core.Enums;
 
 string[] configurationFiles =
 [
     "config/accounts.json",
     "config/core.json",
     "config/ai.json",
+    "config/tools.json",
     "config/conversation.json",
+    "config/social-intelligence.json",
     "config/stickers.json",
+    "config/sticker-labels.json",
     "config/gallery.json",
     "config/voice.engines.json",
     "config/voice.profiles.json",
@@ -36,8 +40,8 @@ configurationBuilder.AddJsonFile("appsettings.Local.json", optional: true);
 IConfigurationRoot configuration = configurationBuilder.Build();
 string[] requiredSections =
 [
-    "BotAccounts", "AI", "OpenCodeAgent", "ModelRouting", "DialoguePlanning", "Admin", "Personas", "ChatHistory", "RelationshipTrajectory",
-    "Images", "GroupStickers", "AnimeTagger", "StickerTags", "Gallery", "VoiceSynthesis",
+    "BotAccounts", "AI", "OpenCodeAgent", "AgentTools", "ModelRouting", "ResponsePolicies", "DialoguePlanning", "EmotionalPragmatics", "SocialIntelligence", "GroupSceneAwareness", "GroupChatInvestigator", "ForwardMessageIngest", "Admin", "Personas", "PersonaCorpusRouting", "PersonaPresence", "PersonaComplianceRules", "ChatHistory", "RelationshipTrajectory", "RelationshipLanguage", "ConversationFocus",
+    "Images", "GroupStickers", "AnimeTagger", "StickerTags", "StickerLabels", "Gallery", "VoiceSynthesis",
     "OneBot", "Setu", "Music", "GsCore", "MessageDispatch", "ReplyScheduling"
 ];
 Assert(requiredSections.All(section => configuration.GetSection(section).Exists()),
@@ -45,6 +49,14 @@ Assert(requiredSections.All(section => configuration.GetSection(section).Exists(
 Assert(!configuration.AsEnumerable().Any(item =>
         item.Key.EndsWith(":AllowedGroupIds", StringComparison.OrdinalIgnoreCase)),
     "group response authorization must live in LiteDB instead of configuration allow lists");
+Assert(PlatformSendResultInspector.TryGetMessageId(new
+    {
+        Data = new
+        {
+            MessageId = 987654321L
+        }
+    }) == 987654321L,
+    "platform send result inspector should extract nested message ids");
 
 var botAccounts = configuration.GetSection("BotAccounts").Get<BotAccountsOptions>()
     ?? throw new InvalidOperationException("BotAccounts configuration did not bind.");
@@ -54,35 +66,48 @@ Assert(enabledBotAccounts.Count > 0 && enabledBotAccounts.Count(account => accou
 Assert(new BotAccountsOptions().GetEnabledConnections().Single().Port == 3010,
     "missing account configuration should preserve the legacy Milky 3010 fallback");
 
-Assert(SetuIntentInterpreter.TryParseDeterministic("来3张萝莉 白丝涩图", 10, out var taggedSetu) &&
+var configuredSetu = configuration.GetSection("Setu").Get<SetuOptions>()
+    ?? throw new InvalidOperationException("Setu configuration should bind.");
+Assert(configuredSetu.IsValid(), "Setu runtime behavior must be fully configuration-backed.");
+Assert(SetuIntentInterpreter.TryParseDeterministic("来3张萝莉 白丝涩图", 10, configuredSetu, out var taggedSetu) &&
        taggedSetu.Count == 3 &&
        taggedSetu.Source == SetuSourceMode.Lolicon &&
        taggedSetu.Tags.Contains("萝莉") &&
        taggedSetu.Tags.Contains("白丝"),
     "tagged setu command should parse count and multiple tags");
-Assert(SetuIntentInterpreter.TryParseDeterministic("来三张色图", 10, out var chineseCountSetu) &&
+Assert(SetuIntentInterpreter.TryParseDeterministic("来三张色图", 10, configuredSetu, out var chineseCountSetu) &&
        chineseCountSetu.Count == 3 &&
        chineseCountSetu.Source == SetuSourceMode.Lolicon,
     "Chinese image count should be understood");
-Assert(SetuIntentInterpreter.TryParseDeterministic("随机涩图", 10, out var randomSetu) &&
+Assert(SetuIntentInterpreter.TryParseDeterministic("随机涩图", 10, configuredSetu, out var randomSetu) &&
        randomSetu.Source == SetuSourceMode.Random,
     "explicit random request should use DMOE or LoliAPI");
-Assert(SetuIntentInterpreter.TryParseDeterministic("要涩图", 10, out var genericRandomSetu) &&
+Assert(SetuIntentInterpreter.TryParseDeterministic("要涩图", 10, configuredSetu, out var genericRandomSetu) &&
        genericRandomSetu.Source == SetuSourceMode.Random,
     "generic 要涩图 request should use a random provider");
-Assert(SetuIntentInterpreter.TryParseDeterministic("我想看鸣潮的图", 10, out var naturalSetu) &&
+Assert(SetuIntentInterpreter.TryParseDeterministic("我想看鸣潮的图", 10, configuredSetu, out var naturalSetu) &&
        naturalSetu.Source == SetuSourceMode.Lolicon &&
        naturalSetu.Tags.Contains("鸣潮"),
     "natural franchise image request should become a tagged Lolicon request");
-Assert(!SetuIntentInterpreter.TryParseDeterministic("我想看这张图片里的内容", 10, out _),
+Assert(!SetuIntentInterpreter.TryParseDeterministic("我想看这张图片里的内容", 10, configuredSetu, out _),
     "ordinary visual questions must not trigger the image provider");
-Assert(!SetuIntentInterpreter.TryParseDeterministic("为什么总发涩图", 10, out _),
+Assert(!SetuIntentInterpreter.TryParseDeterministic("为什么总发涩图", 10, configuredSetu, out _),
     "complaints about prior images must not be treated as a new image request");
-Assert(SetuIntentInterpreter.TryParseDeterministic("来张 R18 涩图", 10, out var rejectedUnsafeSetu) &&
+Assert(SetuIntentInterpreter.TryParseDeterministic("来张 R18 涩图", 10, configuredSetu, out var rejectedUnsafeSetu) &&
        rejectedUnsafeSetu.RejectedUnsafe,
     "R18 image requests must be rejected before any external API call");
+var configuredForwardIngest = configuration.GetSection("ForwardMessageIngest").Get<ForwardMessageIngestOptions>()
+    ?? throw new InvalidOperationException("ForwardMessageIngest configuration should bind.");
+Assert(configuredForwardIngest.IsValid() &&
+       configuredForwardIngest.MaxNodesPerForward <= 100 &&
+       !string.IsNullOrWhiteSpace(configuredForwardIngest.ImagePlaceholder),
+    "merged-forward ingest must be bounded and configuration-backed");
 
-var tagRequestUri = SetuApiService.BuildLoliconUri(
+var setuUriBuilder = new SetuApiService(
+    new SingleHttpClientFactory(new HttpClient()),
+    Options.Create(configuredSetu),
+    NullLogger<SetuApiService>.Instance);
+var tagRequestUri = setuUriBuilder.BuildLoliconUri(
     "https://api.lolicon.app/setu/v2",
     3,
     ["萝莉", "白丝"],
@@ -92,7 +117,7 @@ Assert(tagRequestUri.Contains("r18=0", StringComparison.Ordinal) &&
        tagRequestUri.Contains("size=original", StringComparison.Ordinal) &&
        tagRequestUri.Split("tag=", StringSplitOptions.None).Length == 3,
     "Lolicon tag request must enforce SFW, non-AI original images and repeated AND tags");
-var keywordRequestUri = SetuApiService.BuildLoliconUri(
+var keywordRequestUri = setuUriBuilder.BuildLoliconUri(
     "https://api.lolicon.app/setu/v2",
     3,
     ["萝莉", "白丝"],
@@ -106,7 +131,7 @@ var fallbackHandler = new QueueHttpMessageHandler(
     """{"error":"","data":[{"pid":123,"title":"test","author":"tester","r18":false,"aiType":0,"tags":["萝莉"],"urls":{"original":"https://example.com/original.png"}}]}""");
 var fallbackApi = new SetuApiService(
     new SingleHttpClientFactory(new HttpClient(fallbackHandler)),
-    Options.Create(new SetuOptions()),
+    Options.Create(configuredSetu),
     NullLogger<SetuApiService>.Instance);
 var fallbackResult = await fallbackApi.FetchLoliconAsync(1, ["萝莉"]);
 Assert(fallbackResult.MatchMode == "keyword-fallback" &&
@@ -126,7 +151,28 @@ using (var openCodeConfig = JsonDocument.Parse(File.ReadAllText("opencode.json")
     var agentModel = openCodeConfig.RootElement.GetProperty("agent").GetProperty("hime-qq").GetProperty("model").GetString();
     Assert(rootModel == "hime-glm/glm-5.2" && agentModel == rootModel,
         "OpenCode root and hime-qq agent should both use GLM 5.2");
+    var rootPermission = openCodeConfig.RootElement.GetProperty("permission");
+    var agentPermission = openCodeConfig.RootElement.GetProperty("agent").GetProperty("hime-qq").GetProperty("permission");
+    Assert(rootPermission.GetProperty("websearch").GetString() == "allow" &&
+           agentPermission.GetProperty("websearch").GetString() == "allow" &&
+           rootPermission.GetProperty("hime_web_read").GetString() == "allow" &&
+           agentPermission.GetProperty("hime_web_read").GetString() == "allow" &&
+           rootPermission.GetProperty("webfetch").GetString() == "deny" &&
+           agentPermission.GetProperty("webfetch").GetString() == "deny",
+        "OpenCode should allow configured safe knowledge tools while keeping arbitrary page fetch disabled");
 }
+
+var configuredAgentTools = configuration.GetSection("AgentTools").Get<AgentToolsOptions>()
+    ?? throw new InvalidOperationException("AgentTools configuration should bind");
+var enabledAgentTools = configuredAgentTools.EnabledDefinitions()
+    .Select(item => item.Name)
+    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+Assert(enabledAgentTools.SetEquals(["hime_sticker_search", "websearch", "hime_web_read"]) &&
+       configuration.GetValue<bool>("AgentTools:WebRead:Enabled") &&
+       configuration.GetValue<int>("AgentTools:WebRead:MaxResponseBytes") <= 4 * 1024 * 1024 &&
+       configuration.GetSection("AgentTools:WebRead:AllowedPorts").Get<int[]>() is { Length: > 0 } allowedPorts &&
+       allowedPorts.All(port => port is 80 or 443),
+    "agent tools must be enabled from config and web reading must remain size/port restricted");
 
 AnimeTaggerOptions configuredTagger =
     configuration.GetSection("AnimeTagger").Get<AnimeTaggerOptions>()
@@ -142,21 +188,87 @@ Assert(!configuration.GetSection("VoiceSynthesis:Voices:yangyang-indextts2-faith
 Assert(configuration["VoiceSynthesis:IndexTts:BaseUrl"] == "http://127.0.0.1:9892" &&
        new VoiceSynthesisOptions().IndexTts.BaseUrl == "http://127.0.0.1:9892",
     "IndexTTS2 must use its dedicated port instead of the enterprise-WeChat occupied 9882 port");
-Assert(!configuration.GetValue<bool>("TargetedInteraction:Enabled"),
-    "targeted interaction without configured targets should remain disabled");
+var configuredVoiceSynthesis =
+    configuration.GetSection("VoiceSynthesis").Get<VoiceSynthesisOptions>()
+    ?? throw new InvalidOperationException("VoiceSynthesis configuration should bind");
+Assert(configuredVoiceSynthesis.IsValid() &&
+       configuredVoiceSynthesis.IndexTts.EmotionVectors.Count >= 10,
+    "IndexTTS2 dynamic emotion aliases and eight-dimensional vectors must come from configuration");
+Assert(!configuration.GetSection("TargetedInteraction").Exists() &&
+       !configuration.GetSection("ImplicitAddress").Exists(),
+    "superseded targeted-interaction and implicit-address configuration must stay removed");
 Assert(configuration["Personas:Version"] == "yangyang-v3-dynamic" &&
        configuration["RelationshipTrajectory:SchemaVersion"] == "v3" &&
        !configuration.GetValue<bool>("RelationshipTrajectory:ImportLegacyData"),
     "the clean persona generation must use an isolated v3 relationship trajectory without legacy import");
+var configuredRelationshipLanguage =
+    configuration.GetSection("RelationshipLanguage").Get<RelationshipLanguageOptions>()
+    ?? throw new InvalidOperationException("RelationshipLanguage configuration should bind");
+var configuredFocus =
+    configuration.GetSection("ConversationFocus").Get<ConversationFocusOptions>()
+    ?? throw new InvalidOperationException("ConversationFocus configuration should bind");
+Assert(configuredRelationshipLanguage.IsValid() &&
+       configuredFocus.IsValid() &&
+       configuredFocus.SemanticFallbackEnabled,
+    "dynamic relationship vocabulary and semantic conversation focus must be enabled");
+var configuredSocialIntelligence =
+    configuration.GetSection("SocialIntelligence").Get<SocialIntelligenceOptions>()
+    ?? throw new InvalidOperationException("SocialIntelligence configuration should bind");
+Assert(configuredSocialIntelligence.IsValid() &&
+       configuredSocialIntelligence.IntentRules.Count >= 5,
+    "social intelligence must be configuration-backed and expose several runtime-editable intent rules");
+var configuredGroupSceneAwareness =
+    configuration.GetSection("GroupSceneAwareness").Get<GroupSceneAwarenessOptions>()
+    ?? throw new InvalidOperationException("GroupSceneAwareness configuration should bind");
+Assert(configuredGroupSceneAwareness.IsValid() &&
+       configuredGroupSceneAwareness.EventRules.Any(rule => rule.Id == "naming_review") &&
+       configuredGroupSceneAwareness.EventRules.Any(rule => rule.Id == "followup_explain"),
+    "group scene awareness must be configuration-backed and expose dynamic scene rules");
+var configuredGroupChatInvestigator =
+    configuration.GetSection("GroupChatInvestigator").Get<GroupChatInvestigatorOptions>()
+    ?? throw new InvalidOperationException("GroupChatInvestigator configuration should bind");
+Assert(configuredGroupChatInvestigator.IsValid() &&
+       configuredGroupChatInvestigator.RequestMarkers.Count > 0 &&
+       configuredGroupChatInvestigator.CommonPromptRules.Count > 0,
+    "group chat investigation must be configuration-backed instead of hardcoded prompt matching");
+var relationshipSocialRule = configuredSocialIntelligence.IntentRules
+    .Single(rule => rule.Id == "relationship_tease");
+var socialIntentAnalyzer = new SocialIntentAnalyzer(
+    new TestOptionsMonitor<SocialIntelligenceOptions>(configuredSocialIntelligence));
+var analyzedRelationshipIntent = socialIntentAnalyzer.Analyze(
+    relationshipSocialRule.Markers.First(),
+    new DialogueDecision(
+        DialogueAct.Relationship,
+        IncludeRelationshipContext: true,
+        IncludePersonaState: true,
+        IncludePlotKnowledge: false,
+        IncludeCadenceExamples: true,
+        IncludeTrustedClock: false,
+        "test relationship cue"),
+    new ConversationRoute(ConversationMode.Casual, "test", AllowDecorativeMedia: true));
+Assert(analyzedRelationshipIntent.IntentId == relationshipSocialRule.Id &&
+       analyzedRelationshipIntent.Posture == relationshipSocialRule.Posture &&
+       analyzedRelationshipIntent.MatchedMarkers.Count == 1,
+    "social intent detection should use configured markers and posture instead of hardcoded prompt.Contains branches");
 
-var router = new ConversationRouter(new TestOptionsMonitor<ModelRoutingOptions>(new ModelRoutingOptions
-{
-    Enabled = true,
-    UseHighCapabilityForTechnical = true,
-    ComplexPromptMinCharacters = 120,
-    HighCapabilityProviderId = "hime-glm",
-    HighCapabilityModelId = "glm-5.2"
-}));
+var configuredResponsePolicies = configuration.GetSection("ResponsePolicies").Get<ResponsePolicyOptions>()
+    ?? throw new InvalidOperationException("ResponsePolicies configuration should bind");
+var configuredStickerLabels = configuration.GetSection("StickerLabels").Get<StickerLabelVocabularyOptions>()
+    ?? throw new InvalidOperationException("StickerLabels configuration should bind");
+using var stickerLabels = new StickerLabelVocabulary(
+    new TestOptionsMonitor<StickerLabelVocabularyOptions>(configuredStickerLabels),
+    NullLogger<StickerLabelVocabulary>.Instance);
+var stickerRequestParser = new StickerRequestParser(stickerLabels);
+var router = new ConversationRouter(
+    new TestOptionsMonitor<ModelRoutingOptions>(new ModelRoutingOptions
+    {
+        Enabled = true,
+        UseHighCapabilityForTechnical = true,
+        ComplexPromptMinCharacters = 120,
+        HighCapabilityProviderId = "hime-glm",
+        HighCapabilityModelId = "glm-5.2"
+    }),
+    new TestOptionsMonitor<ResponsePolicyOptions>(configuredResponsePolicies));
 
 Assert(router.Route("hello").Mode == ConversationMode.Casual, "ordinary chat should be casual");
 Assert(router.Route("opencode configuration check").Mode == ConversationMode.Technical, "technical marker should select technical mode");
@@ -168,22 +280,140 @@ var nuancedSocialPrompt = "我和朋友因为一场误会吵架了，现在既�
 Assert(router.SelectModel(router.Route(nuancedSocialPrompt), nuancedSocialPrompt).ModelId == "glm-5.2",
     "nuanced emotional conversation should select the higher-capability model");
 
-var styleOptions = new TestOptionsMonitor<ConversationStyleOptions>(new ConversationStyleOptions
-{
-    ProfileFile = Path.Combine(Directory.GetCurrentDirectory(), "personas", "yangyang-style-card.md"),
-    MaxExamplesPerPrompt = 3
-});
-var personaOptions = new TestOptionsMonitor<PersonaOptions>(new PersonaOptions
-{
-    ProfileId = "yangyang",
-    Version = "yangyang-v1",
-    Language = "zh-CN",
-    Voice = "yangyang",
-    CorpusFile = Path.Combine(Directory.GetCurrentDirectory(), "data", "personas", "yangyang-lines.jsonl"),
-    PlotKnowledgeFile = Path.Combine(Directory.GetCurrentDirectory(), "data", "personas", "yangyang-plot-events.jsonl"),
-    ComplianceRewriteEnabled = true
-});
+var configuredEmotionalPragmatics =
+    configuration.GetSection("EmotionalPragmatics").Get<EmotionalPragmaticsOptions>()
+    ?? throw new InvalidOperationException("EmotionalPragmatics configuration should bind");
+var configuredDialoguePlanning =
+    configuration.GetSection("DialoguePlanning").Get<DialoguePlanningOptions>()
+    ?? throw new InvalidOperationException("DialoguePlanning configuration should bind");
+Assert(configuredDialoguePlanning.IsValid(),
+    "dialogue planning question, repair, distress and relationship markers must be configuration-driven");
+var emotionalPragmaticsOptions =
+    new TestOptionsMonitor<EmotionalPragmaticsOptions>(configuredEmotionalPragmatics);
+var emotionalPlanner = new EmotionalPragmaticsPlanner(emotionalPragmaticsOptions);
+var exclusionPlan = emotionalPlanner.Plan(
+    "今天下雨，所有人都有伞，就我没有",
+    HimeStyleScene.PrivateReply);
+Assert(exclusionPlan.IsActive &&
+       exclusionPlan.NeedsSupport &&
+       exclusionPlan.AvoidAdvice &&
+       exclusionPlan.RestrictMediaIntensity &&
+       exclusionPlan.Cues.Contains("social-exclusion") &&
+       exclusionPlan.AllowedMediaEmotions.Contains("comforting"),
+    "social comparison should be treated as a possible emotional bid rather than a logistics-only question");
+var sighPlan = emotionalPlanner.Plan("唉……", HimeStyleScene.PrivateReply);
+Assert(sighPlan.UseRecentContext &&
+       sighPlan.AvoidQuestions &&
+       sighPlan.AvoidAdvice &&
+       sighPlan.Cues.Contains("low-information-affect"),
+    "a short sigh should use recent context and leave room instead of interrogating or advising");
+var adviceOptOutPlan = emotionalPlanner.Plan(
+    "我心情不好，但你别分析原因，也别给建议，陪我说两句就好",
+    HimeStyleScene.PrivateReply);
+Assert(adviceOptOutPlan.AvoidAdvice &&
+       adviceOptOutPlan.Instruction.Contains("explicitly declined analysis or advice", StringComparison.Ordinal),
+    "an explicit request for companionship must suppress disguised analysis and advice");
+var mixedAffectPlan = emotionalPlanner.Plan(
+    "我考第一了，但是最想告诉的人已经不在了",
+    HimeStyleScene.PrivateReply);
+Assert(mixedAffectPlan.Cues.Contains("mixed-affect") &&
+       mixedAffectPlan.Instruction.Contains("Hold the positive event and painful meaning together", StringComparison.Ordinal),
+    "mixed positive and painful meaning should not collapse into congratulations");
+Assert(!emotionalPlanner.GetEmptyMentionReply().Contains("请告诉我", StringComparison.Ordinal) &&
+       !emotionalPlanner.GetEmptyMentionReply().Contains("随时", StringComparison.Ordinal),
+    "an empty group mention should sound like a conversational acknowledgement rather than customer service");
+
+var configuredStyle = configuration.GetSection("ConversationStyle").Get<ConversationStyleOptions>()
+    ?? throw new InvalidOperationException("ConversationStyle configuration should bind");
+configuredStyle.ProfileFile =
+    Path.Combine(Directory.GetCurrentDirectory(), "personas", "yangyang-style-card.md");
+configuredStyle.MaxExamplesPerPrompt = 3;
+var styleOptions = new TestOptionsMonitor<ConversationStyleOptions>(configuredStyle);
+var configuredPersona = configuration.GetSection("Personas").Get<PersonaOptions>()
+    ?? throw new InvalidOperationException("Personas configuration should bind");
+configuredPersona.Version = "yangyang-v1";
+configuredPersona.CorpusFile =
+    Path.Combine(Directory.GetCurrentDirectory(), "data", "personas", "yangyang-lines.jsonl");
+configuredPersona.PlotKnowledgeFile =
+    Path.Combine(Directory.GetCurrentDirectory(), "data", "personas", "yangyang-plot-events.jsonl");
+Assert(configuredPersona.IsValid(),
+    "persona identity, plot routing and final runtime rules must be configuration-driven");
+var personaOptions = new TestOptionsMonitor<PersonaOptions>(configuredPersona);
+var configuredPersonaPresence =
+    configuration.GetSection("PersonaPresence").Get<PersonaPresenceOptions>()
+    ?? throw new InvalidOperationException("PersonaPresence configuration should bind");
+var configuredCorpusRouting =
+    configuration.GetSection("PersonaCorpusRouting").Get<PersonaCorpusRoutingOptions>()
+    ?? throw new InvalidOperationException("PersonaCorpusRouting configuration should bind");
+Assert(configuredCorpusRouting.IsValid(),
+    "persona corpus scene and emotion routing must be configuration-driven");
+var corpusRoutingOptions =
+    new TestOptionsMonitor<PersonaCorpusRoutingOptions>(configuredCorpusRouting);
+var configuredComplianceRules =
+    configuration.GetSection("PersonaComplianceRules").Get<PersonaComplianceRuleOptions>()
+    ?? throw new InvalidOperationException("PersonaComplianceRules configuration should bind");
+Assert(configuredComplianceRules.IsValid(),
+    "dynamic persona compliance rules and fallbacks must be valid");
+var complianceRuleOptions =
+    new TestOptionsMonitor<PersonaComplianceRuleOptions>(configuredComplianceRules);
+var relationshipLanguageOptions =
+    new TestOptionsMonitor<RelationshipLanguageOptions>(configuredRelationshipLanguage);
+var personaPresence = new PersonaPresenceService(
+    new TestOptionsMonitor<PersonaPresenceOptions>(configuredPersonaPresence));
+Assert(personaPresence.Assess(
+            "公开能查到的信息可以试试，但涉及隐私的数据就不行。",
+            "公开能查到的信息可以试试，但涉及隐私的数据就不行。",
+            casual: true).RequiresRewrite,
+    "a reply that merely echoes the user must be rejected as persona-absent");
+Assert(personaPresence.Assess(
+            "根据规定，我的权限是查询公开信息。",
+            "你能查信息吗",
+            casual: true).RequiresRewrite,
+    "internal policy prose must be rejected before it reaches the user");
+Assert(!personaPresence.Assess(
+            "嗯？我在呢。",
+            "可以帮我查信息吗",
+            casual: true).RequiresRewrite,
+    "a concise natural acknowledgement must not require a catchphrase");
 var runtimeProfile = new PersonaRuntimeProfileService(personaOptions, styleOptions);
+var runtimeInstruction = runtimeProfile.BuildFinalInstruction(
+    "配置驱动人格测试",
+    allowEmotionMarker: false);
+Assert(configuredPersona.RuntimeIdentityRules.All(rule =>
+           runtimeInstruction.Contains(rule, StringComparison.Ordinal)) &&
+       configuredPersona.RuntimeGuardRules.All(rule =>
+           runtimeInstruction.Contains(rule, StringComparison.Ordinal)),
+    "the final persona lock must consume hot-reloadable identity and guard rules instead of compiled character prose");
+var emotionalRewriteClient = new TestAiClient("只有自己没伞，这种被落下的感觉确实不好受。");
+var emotionalReplyRefinement = new EmotionalReplyRefinementService(
+    emotionalRewriteClient,
+    runtimeProfile,
+    emotionalPragmaticsOptions,
+    NullLogger<EmotionalReplyRefinementService>.Instance);
+Assert(emotionalReplyRefinement.Assess(
+        "往我这边靠靠吧，伞够两个人用的。",
+        "今天下雨，所有人都有伞，就我没有。",
+        exclusionPlan).RequiresRewrite,
+    "an emotional reply must not invent a shared umbrella or physical action");
+Assert(emotionalReplyRefinement.Assess(
+        "拿第一很不容易，他一定都看在眼里的，你先歇会儿吧。",
+        "我终于拿了第一，可最想告诉的人已经不在了。",
+        mixedAffectPlan).Reasons.Count >= 2,
+    "unsupported third-party certainty and unsolicited advice should both be detected");
+Assert(!emotionalReplyRefinement.Assess(
+        "只有自己没伞，这种被落下的感觉确实不好受。",
+        "今天下雨，所有人都有伞，就我没有。",
+        exclusionPlan).RequiresRewrite,
+    "a grounded acknowledgement should remain single-call");
+var emotionallyRewritten = await emotionalReplyRefinement.RefineIfNeededAsync(
+    "往我这边靠靠吧，伞够两个人用的。",
+    "今天下雨，所有人都有伞，就我没有。",
+    "私聊回复",
+    10001,
+    exclusionPlan);
+Assert(emotionallyRewritten == "只有自己没伞，这种被落下的感觉确实不好受。" &&
+       emotionalRewriteClient.Calls == 1,
+    "only a high-confidence emotional defect should trigger one bounded rewrite");
 var styleCard = new ConversationStyleService(
     styleOptions,
     runtimeProfile,
@@ -195,14 +425,18 @@ Assert(groupStyle.Contains("Simplified Chinese only", StringComparison.Ordinal) 
 Assert(groupStyle.Contains("Natural dialogue choice", StringComparison.Ordinal),
     "social replies should receive one varied dialogue-act instruction");
 var technicalStyle = styleCard.BuildInstruction(router.Route("检查 C 盘大小"), HimeStyleScene.PrivateReply);
-Assert(technicalStyle.Contains("precision", StringComparison.OrdinalIgnoreCase) &&
+Assert(technicalStyle.Contains("active persona", StringComparison.OrdinalIgnoreCase) &&
+       technicalStyle.Contains("Accuracy constrains the claims", StringComparison.Ordinal) &&
        !technicalStyle.Contains("Scene examples", StringComparison.Ordinal),
-    "technical replies must retain a concise non-decorative delivery policy");
+    "technical replies must preserve persona identity while keeping claims precise and non-decorative");
 Assert(styleCard.BuildProactivePlannerInstruction().Contains("JSON", StringComparison.Ordinal),
     "proactive planner should receive a JSON-safe delivery instruction");
 Assert(styleCard.BuildProactivePlannerInstruction().Contains("Simplified Chinese only", StringComparison.Ordinal),
     "proactive planner should share the active Yangyang language contract");
-var personaCorpus = new PersonaCorpusService(personaOptions, NullLogger<PersonaCorpusService>.Instance);
+var personaCorpus = new PersonaCorpusService(
+    personaOptions,
+    corpusRoutingOptions,
+    NullLogger<PersonaCorpusService>.Instance);
 Assert(personaCorpus.Count >= 600, "verified Yangyang corpus should be available at runtime");
 var plotKnowledge = new PersonaPlotKnowledgeService(personaOptions, NullLogger<PersonaPlotKnowledgeService>.Instance);
 Assert(plotKnowledge.Count == 53, "the versioned Yangyang plot index should contain 53 verified events");
@@ -222,7 +456,38 @@ var compliance = new PersonaComplianceService(
     runtimeProfile,
     personaCorpus,
     plotKnowledge,
+    complianceRuleOptions,
+    relationshipLanguageOptions,
+    NullLogger<PersonaComplianceService>.Instance,
+    personaPresence);
+var echoedReply = compliance.Evaluate(
+    "公开能查到的信息可以试试，但涉及隐私的数据就不行。",
+    userPrompt: "公开能查到的信息可以试试，但涉及隐私的数据就不行。");
+Assert(echoedReply.Issues.HasFlag(PersonaComplianceIssues.PersonaAbsent),
+    "persona-presence findings must participate in the final compliance decision");
+var genericReply = compliance.Evaluate("这个话题就不接了。", userPrompt: "飞机杯");
+Assert(genericReply.Issues.HasFlag(PersonaComplianceIssues.GenericServiceTone),
+    "a generic refusal must be identified as service-tone wording rather than accepted as persona dialogue");
+var naturalRewriteClient = new TestAiClient("这个嘛……你突然问得这么直接，我一时还真不知道该怎么接。");
+var naturalRewriteCompliance = new PersonaComplianceService(
+    naturalRewriteClient,
+    personaOptions,
+    runtimeProfile,
+    personaCorpus,
+    plotKnowledge,
+    complianceRuleOptions,
+    relationshipLanguageOptions,
     NullLogger<PersonaComplianceService>.Instance);
+var naturalRewrite = await naturalRewriteCompliance.RefineIfNeededAsync(
+    "这个话题就不接了。",
+    "飞机杯",
+    "群聊回复",
+    10001,
+    casual: true,
+    requireEmotionMarker: false);
+Assert(naturalRewriteClient.Calls == 1 &&
+       naturalRewrite.StartsWith("这个嘛", StringComparison.Ordinal),
+    "generic refusal wording must trigger one bounded natural-persona rewrite");
 var policyReply = compliance.Evaluate(
     "与你同行是我的选择，但是否成为恋人或夫妻，也该由我自己确认，不能因为你这样叫我就算成立。",
     userPrompt: "秧秧做我老婆");
@@ -266,12 +531,24 @@ var roleLeakReply = compliance.Evaluate(
     userPrompt: "秧秧做我老婆");
 Assert(roleLeakReply.Reasons.Contains("泄露对话角色标签"),
     "serialized USER/ASSISTANT transport labels must never be visible");
+var inlineRoleLeakReply = compliance.Evaluate(
+    "[USER deOne]为什么不直接回答？",
+    userPrompt: "秧秧做我老婆");
+Assert(inlineRoleLeakReply.Reasons.Contains("泄露对话角色标签"),
+    "inline text after a serialized role label must still be rejected");
+var countedRepetitionReply = compliance.Evaluate(
+    "你说了三遍了，我又不是没听见。这种事不是光喊着就能算数的。",
+    userPrompt: "秧秧做我老婆");
+Assert(countedRepetitionReply.Reasons.Contains("把重复关系请求写成训话或终止对话"),
+    "numeric repetition reports and scolding must trigger a relationship rewrite");
 var continuityCompliance = new PersonaComplianceService(
     new TestAiClient("……你今天怎么一直惦记着这个称呼？是有什么话想和我说吗？"),
     personaOptions,
     runtimeProfile,
     personaCorpus,
     plotKnowledge,
+    complianceRuleOptions,
+    relationshipLanguageOptions,
     NullLogger<PersonaComplianceService>.Instance);
 var continuityRewrite = await continuityCompliance.RefineIfNeededAsync(
     "（轻轻叹了口气）你啊……又拿这两个字逗我。我们去花田看看吧。",
@@ -286,6 +563,18 @@ Assert(continuityRewrite.Contains("一直惦记着这个称呼", StringCompariso
        !continuityRewrite.Contains("花田", StringComparison.Ordinal) &&
        !continuityRewrite.Contains("散步", StringComparison.Ordinal),
     "a polluted second reply should be rewritten without inheriting assistant-created scenes");
+var countedRepetitionRewrite = await continuityCompliance.RefineIfNeededAsync(
+    "你说了三遍了，我又不是没听见。这种事不是光喊着就能算数的。",
+    "秧秧做我老婆",
+    "私聊回复",
+    10001,
+    casual: true,
+    requireEmotionMarker: false,
+    repeatedCurrentMessageCount: 3);
+Assert(countedRepetitionRewrite.Contains("一直惦记着这个称呼", StringComparison.Ordinal) &&
+       !countedRepetitionRewrite.Contains("三遍", StringComparison.Ordinal) &&
+       !countedRepetitionRewrite.Contains("不是没听见", StringComparison.Ordinal),
+    "a counted, scolding repetition reply should be rewritten into a natural continuation");
 var localComplianceClient = new TestAiClient("不应调用第二次模型");
 var localCompliance = new PersonaComplianceService(
     localComplianceClient,
@@ -293,6 +582,8 @@ var localCompliance = new PersonaComplianceService(
     runtimeProfile,
     personaCorpus,
     plotKnowledge,
+    complianceRuleOptions,
+    relationshipLanguageOptions,
     NullLogger<PersonaComplianceService>.Instance);
 var locallyCleaned = await localCompliance.RefineIfNeededAsync(
     "（微微点头）这个问题我明白了。",
@@ -313,15 +604,12 @@ var naturalRepeatedReply = await localCompliance.RefineIfNeededAsync(
     repeatedCurrentMessageCount: 2);
 Assert(naturalRepeatedReply == "好啦，我知道你的意思了。" && localComplianceClient.Calls == 0,
     "a natural repeated reply must not be rewritten merely because it lacks a canned continuity phrase");
-var relationshipFallbackMethod = typeof(PersonaComplianceService).GetMethod(
-    "BuildRelationshipBoundaryFallback", BindingFlags.NonPublic | BindingFlags.Static)
-    ?? throw new InvalidOperationException("relationship fallback generator is missing");
-Assert((string)relationshipFallbackMethod.Invoke(null, [string.Empty, false, 2])! ==
+Assert(configuredComplianceRules.RelationshipFallbacks.SecondRequest ==
        "……你今天怎么一直惦记着这个称呼？是有什么话想和我说吗？",
-    "the second-repeat fallback should notice the repetition without forcing a scene");
-Assert((string)relationshipFallbackMethod.Invoke(null, [string.Empty, false, 3])! ==
+    "the dynamic second-repeat fallback should notice repetition without forcing a scene");
+Assert(configuredComplianceRules.RelationshipFallbacks.LaterRequest ==
        "还来呀……我已经听见了。",
-    "later-repeat fallback should remain open without inventing an activity");
+    "the dynamic later-repeat fallback should remain open without inventing an activity");
 var careExamples = personaCorpus.Select("我有点难过，你能陪我聊聊吗", 4);
 Assert(careExamples.Count == 4 && careExamples.Any(item => item.Scene == "care"),
     "persona corpus should retrieve scene-relevant cadence examples");
@@ -342,6 +630,7 @@ using (var prefixReplay = new RelationshipTrajectoryService(
                DatabaseFileName = prefixReplayDatabase,
                AcceptEventsAfterUtc = DateTimeOffset.UtcNow.AddMinutes(-1)
            }),
+           new TestOptionsMonitor<RelationshipLanguageOptions>(configuredRelationshipLanguage),
            NullLogger<RelationshipTrajectoryService>.Instance))
 {
     prefixReplay.RecordUserMessage(91001, 10001, "tester", null, "~ai 秧秧做我老婆");
@@ -365,19 +654,22 @@ Assert(personaCore.Contains("普通四星秧秧", StringComparison.Ordinal) &&
        personaCore.Contains("不是现实搜索", StringComparison.Ordinal),
     "compact persona must retain identity, behavior, and ability boundaries");
 
-var stickerCountMethod = typeof(AiCommand).GetMethod("GetRequestedStickerCount", BindingFlags.NonPublic | BindingFlags.Static)
-    ?? throw new InvalidOperationException("sticker batch detector is missing");
-Assert((int)stickerCountMethod.Invoke(null, ["发3个表情包我看看"])! == 3, "three-sticker request should be detected");
-Assert((int)stickerCountMethod.Invoke(null, ["发送三个情绪标签"])! == 3, "Chinese-number sticker request should be detected");
-
-Assert((int)stickerCountMethod.Invoke(null, ["\u6765\u4e24\u5f20\u8868\u60c5\u5305"])! == 2, "Chinese two-sticker request should be detected");
-Assert((int)stickerCountMethod.Invoke(null, ["\u7ed9\u6211\u4ec0\u4e2a\u8868\u60c5"])! == 3, "colloquial three-sticker request should be detected");
-Assert((int)stickerCountMethod.Invoke(null, ["\u4e09\u8fde\u8868\u60c5\u5305"])! == 3, "three-in-a-row sticker request should be detected");
-Assert((int)stickerCountMethod.Invoke(null, ["\u53d1\u4e00\u4e2a\u5fe7\u4f24\u7684\u8868\u60c5\u5305"])! == 1, "single sticker request should be detected");
-var stickerEmotionMethod = typeof(AiCommand).GetMethod("GetRequestedStickerEmotion", BindingFlags.NonPublic | BindingFlags.Static)
-    ?? throw new InvalidOperationException("sticker emotion detector is missing");
-Assert((string?)stickerEmotionMethod.Invoke(null, ["\u53d1\u4e00\u4e2a\u5fe7\u4f24\u7684\u8868\u60c5\u5305"]) == "sad", "sad sticker request should select sad emotion");
-Assert((string?)stickerEmotionMethod.Invoke(null, ["\u53d1\u4e00\u4e2a\u5f00\u5fc3\u7684\u8868\u60c5\u5305"]) == "happy", "happy sticker request should select happy emotion");
+Assert(stickerRequestParser.GetRequestedCount("发3个表情包我看看") == 3, "three-sticker request should be detected");
+Assert(stickerRequestParser.GetRequestedCount("发送三个情绪标签") == 3, "Chinese-number sticker request should be detected");
+Assert(stickerRequestParser.GetRequestedCount("来两张表情包") == 2, "Chinese two-sticker request should be detected");
+Assert(stickerRequestParser.GetRequestedCount("给我什个表情") == 3, "colloquial three-sticker request should be detected");
+Assert(stickerRequestParser.GetRequestedCount("三连表情包") == 3, "three-in-a-row sticker request should be detected");
+Assert(stickerRequestParser.GetRequestedCount("发一个忧伤的表情包") == 1, "single sticker request should be detected");
+Assert(stickerRequestParser.GetRequestedEmotions("发一个忧伤的表情包").SequenceEqual(["sad"]),
+    "sad sticker request should select sad emotion");
+Assert(stickerRequestParser.GetRequestedEmotions("发一个开心的表情包").SequenceEqual(["happy"]),
+    "happy sticker request should select happy emotion");
+var compoundStickerEmotions = stickerRequestParser.GetRequestedEmotions("发一个又委屈又有点生气的表情包");
+Assert(compoundStickerEmotions.SequenceEqual(["sad", "angry"], StringComparer.OrdinalIgnoreCase),
+    "compound sticker requests must preserve every explicitly mentioned emotion in user order");
+var negativeHappyEmotions = stickerRequestParser.GetRequestedEmotions("发一个不开心的表情包");
+Assert(negativeHappyEmotions.SequenceEqual(["sad"], StringComparer.OrdinalIgnoreCase),
+    "a negated happy label must resolve to sad instead of happy");
 Assert(VisibleReplyTextSanitizer.Clean("你好呀 ``") == "你好呀",
     "a trailing double-backtick protocol artifact should be removed");
 Assert(VisibleReplyTextSanitizer.Clean("你好呀 ``。") == "你好呀。",
@@ -392,6 +684,22 @@ Assert(VisibleReplyTextSanitizer.Clean("（停下脚步，微微歪头看你）�
 Assert(VisibleReplyTextSanitizer.Clean("我已经听见了。\n\n[USER deOne]\n为什么不回答？") ==
        "我已经听见了。",
     "model-generated USER continuations should be truncated before sending");
+Assert(VisibleReplyTextSanitizer.Clean("我已经听见了。\n[USER deOne]为什么不回答？") ==
+       "我已经听见了。",
+    "inline text after a USER label must also be truncated");
+Assert(VisibleReplyTextSanitizer.Clean("[ASSISTANT]你好呀，漂泊者。") ==
+       "你好呀，漂泊者。",
+    "a leading assistant transport label should be removed without losing its spoken answer");
+Assert(VisibleReplyTextSanitizer.Clean(
+           "[USER deOne]你好\n[ASSISTANT]你好呀。\n[USER deOne]继续编造") ==
+       "你好呀。",
+    "only the first serialized assistant turn should survive a fully continued transcript");
+Assert(VisibleReplyTextSanitizer.Clean(
+           "我不会照做，但可以听听你真正想问的事。有什么我能帮到你的，随时跟我说呀。[emotion:neutral]") ==
+       "我不会照做，但可以听听你真正想问的事。 [emotion:neutral]",
+    "generic assistant-service closings should be removed locally while preserving media markers");
+Assert(VisibleReplyTextSanitizer.Clean("如果你还有其他问题，可以随时问我。") == string.Empty,
+    "a reply made only of a generic assistant-service closing should be dropped");
 Assert(VisibleReplyTextSanitizer.Clean("你啊……（无奈地笑了一声）今天怎么了？") ==
        "你啊……今天怎么了？",
     "inline role-play actions should be removed without deleting spoken text");
@@ -401,16 +709,62 @@ var openAiTextExtractor = typeof(AnthropicClientWrapper).GetMethod(
 var reasoningResponse = "{\"choices\":[{\"message\":{\"content\":\"<think>private reasoning</think>\\n\\n最终台词\"}}]}";
 Assert((string)openAiTextExtractor.Invoke(null, [reasoningResponse])! == "最终台词",
     "MiniMax reasoning must never leak from content into the visible QQ reply");
-Assert(StickerLabelVocabulary.TryResolve("脸红", out var blushLabel) &&
+Assert(stickerLabels.TryResolve("脸红", out var blushLabel) &&
        blushLabel.Canonical == "blush" && blushLabel.BaseEmotion == "shy" &&
        blushLabel.Kind == StickerLabelKind.Semantic,
     "manual sticker labels should accept fine-grained Chinese visual semantics");
-Assert(StickerLabelVocabulary.TryResolve("温柔", out var gentleLabel) &&
+Assert(stickerLabels.TryResolve("温柔", out var gentleLabel) &&
        gentleLabel.Canonical == "gentle" && gentleLabel.Kind == StickerLabelKind.Intent,
     "manual sticker labels should distinguish conversational intent from visible emotion");
-Assert(StickerLabelVocabulary.All.Select(item => item.Canonical).Distinct(StringComparer.OrdinalIgnoreCase).Count() >
-       ImageService.CanonicalEmotions.Count,
+Assert(stickerLabels.All.Select(item => item.Canonical).Distinct(StringComparer.OrdinalIgnoreCase).Count() >
+       stickerLabels.BaseEmotions.Count,
     "the human label vocabulary must remain dynamic and richer than the ten fallback emotions");
+var reloadableLabelOptions = new MutableOptionsMonitor<StickerLabelVocabularyOptions>(
+    new StickerLabelVocabularyOptions
+    {
+        FallbackEmotion = "neutral",
+        Definitions =
+        [
+            new()
+            {
+                Canonical = "neutral",
+                BaseEmotion = "neutral",
+                Kind = StickerLabelKind.Emotion,
+                ChineseName = "平静"
+            }
+        ]
+    });
+using (var reloadableLabels = new StickerLabelVocabulary(
+           reloadableLabelOptions,
+           NullLogger<StickerLabelVocabulary>.Instance))
+{
+    reloadableLabelOptions.Update(new StickerLabelVocabularyOptions
+    {
+        FallbackEmotion = "neutral",
+        Definitions =
+        [
+            new()
+            {
+                Canonical = "neutral",
+                BaseEmotion = "neutral",
+                Kind = StickerLabelKind.Emotion,
+                ChineseName = "平静"
+            },
+            new()
+            {
+                Canonical = "delighted",
+                BaseEmotion = "delighted",
+                Kind = StickerLabelKind.Emotion,
+                ChineseName = "雀跃",
+                Aliases = ["欢欣"]
+            }
+        ]
+    });
+    Assert(reloadableLabels.TryResolve("欢欣", out var reloadedLabel) &&
+           reloadedLabel.Canonical == "delighted" &&
+           reloadableLabels.BaseEmotions.Contains("delighted"),
+        "a new emotion and alias must become available after runtime option reload without recompilation");
+}
 var supportedManualStickerMethod = typeof(StickerManagementService).GetMethod(
     "IsSupportedSticker", BindingFlags.NonPublic | BindingFlags.Static)
     ?? throw new InvalidOperationException("manual sticker format detector is missing");
@@ -457,7 +811,7 @@ Assert(new VoiceSynthesisOptions().AutoReplyQueueCapacity == 8 &&
     "automatic voice delivery must be bounded and discard stale jobs");
 Assert(new MessageDispatchOptions().PartitionCount >= 2 &&
        new MessageDispatchOptions().CapacityPerPartition >= 8,
-    "incoming messages must use bounded partitioned conversation queues");
+    "incoming messages must use bounded per-conversation queues");
 Assert(new LiteDbWriteBehindOptions().FlushIntervalMilliseconds <= 500 &&
        new LiteDbWriteBehindOptions().MaxBatchSize >= 32,
     "frequent group activity writes must be coalesced and flushed in bounded batches");
@@ -472,17 +826,12 @@ Assert(privateConversation.Allows(1762889143) && !privateConversation.Allows(307
     "configured private-chat allow list should restrict automatic replies");
 Assert(privateConversation.MergeWindowSeconds == 2 && privateConversation.MaxMergedMessages >= 2,
     "private conversations should use a bounded short merge window by default");
-var privateTriggerMethod = typeof(HimeBotService).GetMethod(
-    "TryExtractPrivateAiPrompt", BindingFlags.NonPublic | BindingFlags.Static)
-    ?? throw new InvalidOperationException("private ~ai trigger parser is missing");
-object?[] privateTriggered = ["~ai 你好", "~ai", null];
-Assert((bool)privateTriggerMethod.Invoke(null, privateTriggered)! && (string?)privateTriggered[2] == "你好",
+Assert(ExplicitAiRequestService.TryExtractPrompt("~ai 你好", "~ai", out var privateTriggered) &&
+       privateTriggered == "你好",
     "~ai followed by whitespace should enter private AI flow and strip the prefix");
-object?[] privatePlain = ["你好", "~ai", null];
-Assert(!(bool)privateTriggerMethod.Invoke(null, privatePlain)!,
+Assert(!ExplicitAiRequestService.TryExtractPrompt("你好", "~ai", out _),
     "ordinary private text must not enter AI flow");
-object?[] privateLookalike = ["~aix test", "~ai", null];
-Assert(!(bool)privateTriggerMethod.Invoke(null, privateLookalike)!,
+Assert(!ExplicitAiRequestService.TryExtractPrompt("~aix test", "~ai", out _),
     "a lookalike prefix must not trigger private AI flow");
 var proactiveSimilarityMethod = typeof(ProactiveAgentService).GetMethod(
     "TextSimilarity", BindingFlags.NonPublic | BindingFlags.Static)
@@ -495,18 +844,18 @@ Assert((double)proactiveSimilarityMethod.Invoke(null, [
            "今天也辛苦了，记得给自己留一点喘口气的时间。",
            "刚才看到大家在聊新活动，那个配色确实挺有意思。 "])! < 0.72,
     "different proactive topics must remain sendable");
-var separatedLabels = StickerLabelVocabulary.SplitInput("开心|脸红，俏皮；温柔+关心＆安慰 大笑");
+var separatedLabels = stickerLabels.SplitInput("开心|脸红，俏皮；温柔+关心＆安慰 大笑");
 Assert(separatedLabels.Count == 7 && separatedLabels.Contains("安慰"),
     "sticker labels should accept pipes, punctuation, plus, ampersand, and whitespace separators");
 var explicitIntentMethod = typeof(StickerManagementService).GetMethod(
     "GetExplicitIntentTags", BindingFlags.NonPublic | BindingFlags.Static)
     ?? throw new InvalidOperationException("manual sticker intent selector is missing");
-var angrySeriousDefinitions = StickerLabelVocabulary.ResolveMany(["angry", "serious"]);
+var angrySeriousDefinitions = stickerLabels.ResolveMany(["angry", "serious"]);
 var inferredManualIntents = (IReadOnlyList<string>)explicitIntentMethod.Invoke(
     null, [angrySeriousDefinitions])!;
 Assert(inferredManualIntents.Count == 0,
     "manual angry + serious labels must not manufacture a calm intent");
-var explicitCalmDefinitions = StickerLabelVocabulary.ResolveMany(["angry", "calm"]);
+var explicitCalmDefinitions = stickerLabels.ResolveMany(["angry", "calm"]);
 var explicitManualIntents = (IReadOnlyList<string>)explicitIntentMethod.Invoke(
     null, [explicitCalmDefinitions])!;
 Assert(explicitManualIntents.SequenceEqual(["calm"], StringComparer.OrdinalIgnoreCase),
@@ -585,6 +934,8 @@ using (var context = new HimeDbContext(databaseName))
     var states = new PersonaStateService(
         context,
         Options.Create(new PersonaStateOptions { Enabled = true, ConfirmationsRequired = 1, MaxGroupMemberCards = 3 }),
+        stickerLabels,
+        new TestOptionsMonitor<ConversationFocusOptions>(configuredFocus),
         NullLogger<PersonaStateService>.Instance);
     states.ObserveConversation(42, "阿梨", 100, "测试群");
     states.ApplyMemoryProposals(42, 100, [new PersonaMemoryProposal("user", "address", "call", "小梨")]);
@@ -645,12 +996,7 @@ var inspection = inspector.Inspect(samplePath);
 Assert(inspection is not null && inspection.Width > 0 && inspection.Height > 0, "local vision should inspect the bundled sticker");
 
 using var animeTagger = new AnimeStickerTagger(
-    Options.Create(new AnimeTaggerOptions
-    {
-        Enabled = true,
-        ModelPath = "models/wd-vit-tagger-v3/model.onnx",
-        TagsPath = "models/wd-vit-tagger-v3/selected_tags.csv"
-    }),
+    Options.Create(configuredTagger),
     NullLogger<AnimeStickerTagger>.Instance);
 var animeTags = animeTagger.Analyze(samplePath);
 Assert(animeTags is not null && animeTags.SemanticTags.Count > 0,
@@ -692,6 +1038,9 @@ tagCatalog.Upsert(
 var neutralTestSticker = Path.Combine(
     Directory.GetCurrentDirectory(),
     "resources", "images", "approved", "829269550", "happy_535e68fcca4341cfd8ddd5f8.gif");
+var bootstrapTestSticker = Path.Combine(
+    Directory.GetCurrentDirectory(),
+    "resources", "images", "approved", "829269550", "angry_3dfcfd9b0f10dfac6cecfda3.gif");
 tagCatalog.Upsert(
     neutralTestSticker,
     "neutral",
@@ -704,10 +1053,15 @@ var curatedImages = new ImageService(Options.Create(new ImageOptions
     Directory = Path.Combine(Directory.GetCurrentDirectory(), "resources", "images"),
     AdditionalDirectories = [],
     OnlyUseApprovedStickers = true,
-    ApprovedStickerFileNames = ["smile.gif", "happy_535e68fcca4341cfd8ddd5f8.gif"],
+    ApprovedStickerFileNames =
+    [
+        "smile.gif",
+        "happy_535e68fcca4341cfd8ddd5f8.gif",
+        "angry_3dfcfd9b0f10dfac6cecfda3.gif"
+    ],
     ApprovedStickerDirectories = []
-}), tagCatalog);
-Assert(curatedImages.AvailableImages.Count == 2, "only the two curated GIF stickers should be available");
+}), tagCatalog, stickerLabels, Options.Create(new StickerTagOptions()), NullLogger<ImageService>.Instance);
+Assert(curatedImages.AvailableImages.Count == 3, "only the three curated GIF stickers should be available");
 Assert(curatedImages.Resolve("happy_5b1d9d08375a7b62b710b330.jpg") is null, "unapproved meme sticker must not be sendable");
 Assert(curatedImages.ResolveEmotion("happy") is not null, "curated happy sticker should remain sendable");
 Assert(curatedImages.ResolveSticker(["blush", "smile"]) is not null,
@@ -732,6 +1086,17 @@ var calmFallback = curatedImages.SearchStickers(new StickerSearchRequest
 }).Single();
 Assert(calmFallback.MatchLevel == "neutral-fallback" && calmFallback.StickerId == Path.GetFileName(neutralTestSticker),
     "low-confidence multi-label search should use a calm fallback instead of a wrong sticker");
+var compoundFallback = curatedImages.SearchStickers(new StickerSearchRequest
+{
+    Emotions = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sad"] = 1.0,
+        ["angry"] = 1.0
+    }
+}).Single();
+Assert(compoundFallback.MatchLevel == "neutral-fallback" &&
+       compoundFallback.StickerId == Path.GetFileName(neutralTestSticker),
+    "an explicit compound emotion with no strong combined match must prefer neutral over a misleading single emotion");
 Assert(curatedImages.GetDeclaredEmotion(neutralTestSticker) == "neutral" &&
        curatedImages.ResolveEmotion("neutral") == neutralTestSticker,
     "catalog emotion must override a misleading happy_ file-name prefix");
@@ -740,6 +1105,11 @@ Assert(toolSnapshot.Version == StickerTagCatalog.CurrentCatalogVersion,
     "OpenCode sticker snapshot should publish the current multi-frame catalog version");
 Assert(toolSnapshot.Stickers.Any(item => item.StickerId == "smile.gif" && item.Emotions.Count >= 2),
     "OpenCode snapshot should expose multi-label emotion metadata for approved stickers");
+Assert(toolSnapshot.Stickers.Any(item =>
+        item.StickerId == Path.GetFileName(bootstrapTestSticker) &&
+        item.Emotions.ContainsKey("angry") &&
+        item.SemanticTags.Contains("angry", StringComparer.OrdinalIgnoreCase)),
+    "OpenCode snapshot should keep approved stickers available during asynchronous tag backfill");
 var publishedSnapshotPath = Path.Combine(Path.GetTempPath(), $"hime-opencode-sticker-snapshot-{Guid.NewGuid():N}.json");
 var publisher = new OpenCodeStickerCatalogPublisher(
     curatedImages,
@@ -776,7 +1146,7 @@ var emotionalCuratedImages = new ImageService(Options.Create(new ImageOptions
     {
         ["happy"] = "smile.gif"
     }
-}), tagCatalog);
+}), tagCatalog, stickerLabels, Options.Create(new StickerTagOptions()), NullLogger<ImageService>.Instance);
 var sadSticker = emotionalCuratedImages.ResolveEmotion("sad");
 var sadStickerEntry = string.IsNullOrWhiteSpace(sadSticker) ? null : tagCatalog.GetEntry(sadSticker);
 Assert(sadStickerEntry?.EmotionScores.ContainsKey("sad") == true,
@@ -796,7 +1166,7 @@ var guardedImages = new ImageService(Options.Create(new ImageOptions
     OnlyUseApprovedStickers = true,
     ApprovedStickerDirectories = [oversizedStickerDirectory],
     MaxSendableStickerBytes = 128 * 1024
-}), tagCatalog);
+}), tagCatalog, stickerLabels, Options.Create(new StickerTagOptions()), NullLogger<ImageService>.Instance);
 Assert(guardedImages.AvailableImages.Count == 0 &&
        !guardedImages.IsApprovedStickerPath(oversizedStickerPath),
     "oversized approved GIFs must never enter the sendable sticker catalog");
@@ -813,7 +1183,7 @@ var helpRenderer = typeof(HelpCommand).Assembly.GetType("Hime.Commands.HelpMenuR
     ?? throw new InvalidOperationException("HelpMenuRenderer should exist");
 var renderHelp = helpRenderer.GetMethod("Render", BindingFlags.Public | BindingFlags.Static)
     ?? throw new InvalidOperationException("HelpMenuRenderer.Render should exist");
-var renderedHelpPath = renderHelp.Invoke(null, [helpSections]) as string;
+var renderedHelpPath = renderHelp.Invoke(null, [helpSections, "秧秧"]) as string;
 Assert(renderedHelpPath is not null && File.Exists(renderedHelpPath) &&
        new FileInfo(renderedHelpPath).Length > 10 * 1024,
     "adaptive cyberpunk help menu should render to a non-empty cached PNG");
@@ -867,6 +1237,39 @@ var architectureServices = new ServiceCollection();
 architectureServices.AddLogging();
 architectureServices.AddHttpClient();
 architectureServices.AddHimeData();
+architectureServices.Configure<AiOptions>(options =>
+{
+    options.ApiKey = "integration-test-key";
+    options.BaseUrl = "http://127.0.0.1:9";
+    options.Model = "integration-test-model";
+});
+architectureServices.Configure<OpenCodeAgentOptions>(options =>
+{
+    options.Enabled = false;
+    options.AutoStartLocalServer = false;
+});
+architectureServices.AddSingleton<IOptionsMonitor<StickerLabelVocabularyOptions>>(
+    new TestOptionsMonitor<StickerLabelVocabularyOptions>(configuredStickerLabels));
+architectureServices.AddSingleton<IOptionsMonitor<ResponsePolicyOptions>>(
+    new TestOptionsMonitor<ResponsePolicyOptions>(configuredResponsePolicies));
+architectureServices.AddSingleton<IOptions<DialoguePlanningOptions>>(
+    Options.Create(configuredDialoguePlanning));
+architectureServices.AddSingleton<IOptionsMonitor<PersonaCorpusRoutingOptions>>(
+    corpusRoutingOptions);
+architectureServices.AddSingleton<IOptionsMonitor<PersonaComplianceRuleOptions>>(
+    complianceRuleOptions);
+architectureServices.AddSingleton<IOptionsMonitor<RelationshipLanguageOptions>>(
+    relationshipLanguageOptions);
+architectureServices.AddSingleton<IOptionsMonitor<PersonaOptions>>(personaOptions);
+architectureServices.AddSingleton<IOptionsMonitor<ConversationStyleOptions>>(styleOptions);
+architectureServices.AddSingleton<IOptionsMonitor<ConversationFocusOptions>>(
+    new TestOptionsMonitor<ConversationFocusOptions>(configuredFocus));
+architectureServices.AddSingleton<IOptionsMonitor<SocialIntelligenceOptions>>(
+    new TestOptionsMonitor<SocialIntelligenceOptions>(configuredSocialIntelligence));
+architectureServices.AddSingleton<IOptionsMonitor<GroupSceneAwarenessOptions>>(
+    new TestOptionsMonitor<GroupSceneAwarenessOptions>(configuredGroupSceneAwareness));
+architectureServices.AddSingleton<IOptionsMonitor<GroupChatInvestigatorOptions>>(
+    new TestOptionsMonitor<GroupChatInvestigatorOptions>(configuredGroupChatInvestigator));
 architectureServices.AddSingleton<HimeBotService>();
 architectureServices.AddSingleton<IGroupMessageSender>(provider =>
     provider.GetRequiredService<HimeBotService>());
@@ -879,6 +1282,87 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
            architectureProvider.GetRequiredService<ICommandBus>() is not null &&
            architectureProvider.GetRequiredService<IInteractionManager>() is not null,
         "scheme B message coordinator, command bus, and interaction manager must resolve without DI cycles");
+    var participantMiddleware = architectureProvider
+        .GetServices<IMessageMiddleware>()
+        .OfType<ParticipantIdentityMiddleware>()
+        .Single();
+    var participantProfiles = architectureProvider.GetRequiredService<ParticipantIdentityService>();
+    var selfPlainContext = new MessageContext(new IncomingMessage(
+        "qq", "primary", "self-plain", "qq:group:100",
+        100, 70001, 90001, 90001, 100,
+        "hello from self", false, false, false,
+        new TestReplyChannel("primary", 90001, true, 100), null!));
+    var selfPlainContinued = false;
+    await participantMiddleware.InvokeAsync(
+        selfPlainContext,
+        (_, _) =>
+        {
+            selfPlainContinued = true;
+            return Task.CompletedTask;
+        },
+        CancellationToken.None);
+    Assert(selfPlainContext.Handled &&
+           !selfPlainContinued &&
+           selfPlainContext.Outcome == "self-message-observed",
+        "plain self messages must remain blocked to prevent feedback loops");
+    var configuredSelfAlias = configuredFocus.BotAliases.First(alias => !string.IsNullOrWhiteSpace(alias));
+    var selfAliasProbe = $"{configuredSelfAlias} help me test this";
+    var selfAliasContext = new MessageContext(new IncomingMessage(
+        "qq", "primary", "self-yangyang", "qq:group:100",
+        100, 70002, 90001, 90001, 100,
+        selfAliasProbe, false, false, false,
+        new TestReplyChannel("primary", 90001, true, 100), null!));
+    var selfAliasContinued = false;
+    await participantMiddleware.InvokeAsync(
+        selfAliasContext,
+        (_, _) =>
+        {
+            selfAliasContinued = true;
+            return Task.CompletedTask;
+        },
+        CancellationToken.None);
+    Assert(!selfAliasContext.Handled &&
+           selfAliasContinued &&
+           ParticipantIdentityMiddleware.IsSelfAliasTrigger(selfAliasProbe, configuredFocus.BotAliases),
+        "self messages that start with a configured assistant alias must enter the normal user pipeline");
+
+    var externalAliasBotIdForMiddleware = Math.Abs(Random.Shared.NextInt64(1_000_000_000, 8_000_000_000));
+    participantProfiles.SetKind("qq", externalAliasBotIdForMiddleware, ParticipantKind.ExternalBot, "test");
+    var externalPlainContext = new MessageContext(new IncomingMessage(
+        "qq", "primary", "external-plain", "qq:group:100",
+        100, 70003, 90001, externalAliasBotIdForMiddleware, 100,
+        "hello from external bot", false, false, false,
+        new TestReplyChannel("primary", 90001, true, 100), null!));
+    var externalPlainContinued = false;
+    await participantMiddleware.InvokeAsync(
+        externalPlainContext,
+        (_, _) =>
+        {
+            externalPlainContinued = true;
+            return Task.CompletedTask;
+        },
+        CancellationToken.None);
+    Assert(externalPlainContext.Handled &&
+           !externalPlainContinued &&
+           externalPlainContext.Outcome == "external-bot-observed",
+        "plain external bot messages must remain blocked to prevent bot loops");
+    var externalAliasContext = new MessageContext(new IncomingMessage(
+        "qq", "primary", "external-yangyang", "qq:group:100",
+        100, 70004, 90001, externalAliasBotIdForMiddleware, 100,
+        $"{configuredSelfAlias} help me test this from another bot", false, false, false,
+        new TestReplyChannel("primary", 90001, true, 100), null!));
+    var externalAliasContinued = false;
+    await participantMiddleware.InvokeAsync(
+        externalAliasContext,
+        (_, _) =>
+        {
+            externalAliasContinued = true;
+            return Task.CompletedTask;
+        },
+        CancellationToken.None);
+    Assert(!externalAliasContext.Handled &&
+           externalAliasContinued,
+        "external bot messages that start with the assistant alias must enter the normal user pipeline");
 
     var persistentInteractions = architectureProvider.GetRequiredService<IInteractionManager>();
     var persistentScope = $"test:private:{Guid.NewGuid():N}";
@@ -895,7 +1379,6 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
     Assert(await persistentInteractions.CancelAsync(persistentScope) == 1,
         "LiteDB interaction state should be removable after completion");
 
-    var participantProfiles = architectureProvider.GetRequiredService<ParticipantIdentityService>();
     var contextChat = architectureProvider.GetRequiredService<IChatService>();
     var contextAssembler = architectureProvider.GetRequiredService<ConversationContextAssembler>();
     var personaState = architectureProvider.GetRequiredService<IPersonaStateService>();
@@ -935,6 +1418,132 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
            !assembledText.Contains("KFC污染消息", StringComparison.Ordinal),
         "group context must retain speaker identity and exclude external-bot turns");
 
+    var topicContextActivities = architectureProvider.GetRequiredService<IGroupActivityService>();
+    const string topicA = "test-topic-a";
+    const string topicB = "test-topic-b";
+    var otherHumanId = Math.Abs(Random.Shared.NextInt64(1_000_000_000, 8_000_000_000));
+    topicContextActivities.RecordIncoming(
+        contextGroupId,
+        "测试群",
+        currentUserId,
+        "当前测试用户",
+        "话题甲只谈风声",
+        [],
+        messageId: 91001,
+        accountId: "test-account",
+        topicId: topicA,
+        conversationParticipants: [currentUserId]);
+    topicContextActivities.RecordBotReply(
+        contextGroupId,
+        "甲话题的机器人回复",
+        replyToMessageId: 91001,
+        replyToUserId: currentUserId,
+        topicId: topicA,
+        conversationParticipants: [currentUserId]);
+    topicContextActivities.RecordIncoming(
+        contextGroupId,
+        "测试群",
+        otherHumanId,
+        "另一位成员",
+        "话题乙只谈晚饭",
+        [],
+        messageId: 91002,
+        accountId: "test-account",
+        topicId: topicB,
+        conversationParticipants: [otherHumanId]);
+    topicContextActivities.RecordBotReply(
+        contextGroupId,
+        "乙话题的机器人回复",
+        replyToMessageId: 91002,
+        replyToUserId: otherHumanId,
+        topicId: topicB,
+        conversationParticipants: [otherHumanId]);
+    var topicScoped = contextAssembler.Build(
+        currentUserId,
+        "当前测试用户",
+        contextGroupId,
+        "那后来呢",
+        topicA,
+        [currentUserId]);
+    var topicScopedText = string.Join('\n', topicScoped.Messages.Select(message => message.Content));
+    Assert(topicScopedText.Contains("话题甲只谈风声", StringComparison.Ordinal) &&
+           topicScopedText.Contains("甲话题的机器人回复", StringComparison.Ordinal) &&
+           !topicScopedText.Contains("话题乙只谈晚饭", StringComparison.Ordinal) &&
+           topicScoped.RecentAssistantReplies.Contains("甲话题的机器人回复", StringComparer.Ordinal) &&
+           !topicScoped.RecentAssistantReplies.Contains("乙话题的机器人回复", StringComparer.Ordinal),
+        "topic-scoped context and repetition history must include the selected thread and exclude a parallel conversation");
+
+    var groupInvestigator = architectureProvider.GetRequiredService<GroupChatInvestigatorService>();
+    var investigatorGroupId = Math.Abs(Random.Shared.NextInt64(1_000_000_000, 8_000_000_000));
+    var configuredInvestigatorMarker = configuredGroupChatInvestigator.RequestMarkers
+        .First(marker => !string.IsNullOrWhiteSpace(marker));
+    const string quotedEvidenceText = "alpha comet anchor";
+    topicContextActivities.RecordIncoming(
+        investigatorGroupId,
+        "investigator-test",
+        910001,
+        "source-speaker",
+        $"first source: {quotedEvidenceText}",
+        [],
+        messageId: 94001,
+        accountId: "test-account",
+        topicId: "investigator-topic",
+        conversationParticipants: [910001]);
+    topicContextActivities.RecordIncoming(
+        investigatorGroupId,
+        "investigator-test",
+        910002,
+        "second-speaker",
+        $"follow-up source: {quotedEvidenceText}",
+        [],
+        messageId: 94002,
+        accountId: "test-account",
+        topicId: "investigator-topic",
+        conversationParticipants: [910002]);
+    topicContextActivities.RecordIncoming(
+        investigatorGroupId,
+        "investigator-test",
+        currentUserId,
+        "investigator-user",
+        $"{configuredInvestigatorMarker} {quotedEvidenceText}",
+        [],
+        messageId: 94003,
+        accountId: "test-account",
+        replyToMessageId: 94001,
+        replyToUserId: 910001,
+        quotedText: quotedEvidenceText,
+        mentionedUserIds: [910001],
+        topicId: "investigator-topic",
+        conversationParticipants: [currentUserId, 910001]);
+    var investigatorFocus = new ConversationFocusDecision(
+        ConversationTargetKind.Bot,
+        null,
+        "investigator-topic",
+        [currentUserId, 910001],
+        1.0,
+        1.0,
+        FocusReplyMode.Answer,
+        1.0,
+        "test investigator focus",
+        UsedSemanticFallback: false);
+    var investigationPrompt = groupInvestigator.BuildPromptContext(
+        investigatorGroupId,
+        94003,
+        $"{configuredInvestigatorMarker} {quotedEvidenceText}",
+        investigatorFocus);
+    Assert(investigationPrompt.Contains("<group_chat_investigation>", StringComparison.Ordinal) &&
+           investigationPrompt.Contains(quotedEvidenceText, StringComparison.Ordinal) &&
+           investigationPrompt.Contains("source-speaker", StringComparison.Ordinal) &&
+           investigationPrompt.Contains("phrase_counts:", StringComparison.Ordinal) &&
+           investigationPrompt.Contains("speaker_activity_ranking:", StringComparison.Ordinal),
+        "group chat investigation should produce quote, speaker, count and ranking evidence from dynamic configuration");
+    Assert(string.IsNullOrWhiteSpace(groupInvestigator.BuildPromptContext(
+               investigatorGroupId,
+               0,
+               "ordinary idle chat without configured markers",
+               investigatorFocus)),
+        "group chat investigation must stay silent when no dynamic trigger or quote focus exists");
+
     var socialTurns = architectureProvider.GetRequiredService<SocialTurnCoordinator>();
     var ordinarySocialTurn = new TurnContext(
         Guid.NewGuid().ToString("N"),
@@ -962,11 +1571,85 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
         ordinarySocialPlan.Messages.Select(message => message.Content));
     Assert(ordinarySocialPlan.Decision.Act == DialogueAct.Answer &&
            !ordinarySocialPlan.Decision.IncludeRelationshipContext &&
+           !ordinarySocialPlan.RequestProfile.PreferDirect &&
            !ordinarySocialPrompt.Contains("<evidence_backed_relationship_plan>", StringComparison.Ordinal),
         "ordinary questions must not receive the large relationship or marriage policy");
     Assert(ordinarySocialPrompt.Contains("<active_persona_lock>", StringComparison.Ordinal) &&
            ordinarySocialPrompt.Contains("这是当前用户的有效消息", StringComparison.Ordinal),
         "explicit social replies must use the shared persona lock and assembled conversation context");
+    Assert(ordinarySocialPrompt.Contains("<dynamic_social_turn_strategy>", StringComparison.Ordinal) &&
+           ordinarySocialPrompt.Contains("social_intent=", StringComparison.Ordinal),
+        "social turns must inject the dynamic strategy brief before model generation");
+    var sceneAwareness = architectureProvider.GetRequiredService<GroupSceneAwarenessService>();
+    var sceneIncoming = new IncomingMessage(
+        "qq",
+        "primary",
+        "scene-name-review",
+        ordinarySocialTurn.ScopeKey,
+        contextGroupId,
+        880010,
+        990010,
+        currentUserId,
+        contextGroupId,
+        "I made a task name called Return to Light",
+        false,
+        false,
+        false,
+        new TestReplyChannel("primary", 990010, true, contextGroupId),
+        null!)
+    {
+        ConversationParticipants = [currentUserId]
+    };
+    sceneAwareness.ObserveIncoming(sceneIncoming, "test group", "scene tester");
+    var sceneFollowupTurn = ordinarySocialTurn with
+    {
+        TurnId = Guid.NewGuid().ToString("N"),
+        CorrelationId = $"test-scene-followup-{Guid.NewGuid():N}",
+        SourceMessageId = "880011",
+        UserText = "why is that name good",
+        ConversationParticipants = [currentUserId]
+    };
+    var sceneFollowupPlan = socialTurns.Build(new SocialTurnRequest(
+        sceneFollowupTurn,
+        880011,
+        "test group",
+        sceneFollowupTurn.UserText,
+        sceneFollowupTurn.UserText,
+        HimeStyleScene.GroupReply));
+    var sceneFollowupPrompt = string.Join(
+        '\n',
+        sceneFollowupPlan.Messages.Select(message => message.Content));
+    Assert(sceneAwareness.GetRecentEvents(contextGroupId).Any(item => item.Kind == "naming_review") &&
+           sceneFollowupPrompt.Contains("<group_scene_awareness>", StringComparison.Ordinal) &&
+           sceneFollowupPrompt.Contains("Return to Light", StringComparison.Ordinal) &&
+           sceneFollowupPrompt.Contains("naming_review", StringComparison.Ordinal),
+        "short follow-ups must receive dynamic group-scene context instead of relying on hard-coded reply templates");
+
+    var emotionalTurn = ordinarySocialTurn with
+    {
+        TurnId = Guid.NewGuid().ToString("N"),
+        CorrelationId = $"test-emotional-{Guid.NewGuid():N}",
+        SourceMessageId = "880015",
+        UserText = "今天下雨，所有人都有伞，就我没有"
+    };
+    var emotionalSocialPlan = socialTurns.Build(new SocialTurnRequest(
+        emotionalTurn,
+        880015,
+        "测试群",
+        emotionalTurn.UserText,
+        emotionalTurn.UserText,
+        HimeStyleScene.GroupReply));
+    var emotionalSocialPrompt = string.Join(
+        '\n',
+        emotionalSocialPlan.Messages.Select(message => message.Content));
+    Assert(emotionalSocialPlan.Decision.Act == DialogueAct.Support &&
+           !emotionalSocialPlan.Decision.IncludePlotKnowledge &&
+           !emotionalSocialPlan.Decision.IncludeCadenceExamples &&
+           emotionalSocialPlan.RequestProfile.PreferDirect &&
+           emotionalSocialPlan.EmotionalPragmatics.Cues.Contains("social-exclusion") &&
+           emotionalSocialPrompt.Contains("<emotional_pragmatics", StringComparison.Ordinal) &&
+           emotionalSocialPrompt.Contains("public-safe and restrained", StringComparison.Ordinal),
+        "shared social planning must recognize indirect emotional bids, isolate scene examples, and use the structured direct path");
 
     var relationshipTurn = ordinarySocialTurn with
     {
@@ -982,11 +1665,13 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
         relationshipTurn.UserText,
         relationshipTurn.UserText,
         HimeStyleScene.GroupReply));
+    var relationshipSocialPrompt = string.Join('\n', relationshipSocialPlan.Messages.Select(message => message.Content));
     Assert(relationshipSocialPlan.Decision.Act == DialogueAct.Relationship &&
            relationshipSocialPlan.Decision.IncludeRelationshipContext &&
-           string.Join('\n', relationshipSocialPlan.Messages.Select(message => message.Content))
-               .Contains("<evidence_backed_relationship_plan>", StringComparison.Ordinal),
-        "relationship requests must retain evidence-backed boundaries and continuity");
+           relationshipSocialPlan.RequestProfile.PreferDirect &&
+           relationshipSocialPrompt.Contains("<evidence_backed_relationship_plan>", StringComparison.Ordinal) &&
+           relationshipSocialPrompt.Contains("social_intent=relationship_tease", StringComparison.Ordinal),
+        "relationship requests must retain evidence-backed boundaries and use the low-latency direct path");
 
     var reactiveTurn = ordinarySocialTurn with
     {
@@ -1011,10 +1696,69 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
            reactiveSocialPrompt.Contains("这是当前用户的有效消息", StringComparison.Ordinal) &&
            reactiveSocialPrompt.Contains("End with exactly one supported", StringComparison.Ordinal),
         "natural group participation must use the same shared context and explicit media contract");
+    var candidateJudge = new ReplyCandidateJudgeService(
+        new TestAiClient("你想查哪一类？说具体一点，我帮你一起理清楚。"),
+        architectureProvider.GetRequiredService<PersonaComplianceService>(),
+        architectureProvider.GetRequiredService<ReplyLearningService>(),
+        architectureProvider.GetRequiredService<PersonaRuntimeProfileService>(),
+        new TestOptionsMonitor<SocialIntelligenceOptions>(configuredSocialIntelligence),
+        NullLogger<ReplyCandidateJudgeService>.Instance);
+    var candidateChoice = await candidateJudge.SelectBestAsync(
+        "作为AI，我无法确认你的全部需求，如果你需要可以继续告诉我。",
+        ordinarySocialPlan,
+        ordinarySocialTurn.UserText,
+        currentUserId,
+        HimeStyleScene.GroupReply,
+        casual: true,
+        requireEmotionMarker: false,
+        ReplyCandidateJudgeUsage.ExplicitAi);
+    Assert(candidateChoice.Replaced &&
+           candidateChoice.Reply.Contains("具体", StringComparison.Ordinal) &&
+           candidateChoice.Candidates.Count >= 2,
+        "candidate judge should replace a generic service-tone draft with a more concrete social reply when an alternative is better");
 
     var contextDatabase = architectureProvider.GetRequiredService<HimeDbContext>();
+    var replyLearning = architectureProvider.GetRequiredService<ReplyLearningService>();
     var turnRecorder = architectureProvider.GetRequiredService<IConversationTurnRecorder>();
     var contextActivities = architectureProvider.GetRequiredService<IGroupActivityService>();
+    var learningPersona = $"test-persona-{Guid.NewGuid():N}";
+    var learningDraft = new ReplyLearningExampleDraft(
+        learningPersona,
+        "good",
+        "capability_query",
+        "group_reply",
+        "Can you help me check one concrete thing?",
+        "Ask which exact thing they want checked before listing capabilities.",
+        "Prefer a concrete next step over a generic capability list.",
+        CreatedByUserId: 10001,
+        GroupId: null,
+        Source: "self-test");
+    var learnedRecord = replyLearning.AddExample(learningDraft);
+    var duplicateLearnedRecord = replyLearning.AddExample(learningDraft);
+    var learningMatches = replyLearning.FindRelevant(
+        learningPersona,
+        "capability_query",
+        "group_reply",
+        "Please help check that concrete information.",
+        "good",
+        3);
+    Assert(learnedRecord.Id == duplicateLearnedRecord.Id &&
+           learningMatches.Any(match => match.Record.Id == learnedRecord.Id),
+        "reply learning should upsert human-reviewed examples and retrieve them by intent, scene and similarity");
+    var weightedRecord = replyLearning.SetWeight(learnedRecord.Id, null, 2.5);
+    var listedLearning = replyLearning.ListExamples(null, "good", 5);
+    var shortLearningId = learnedRecord.Id["learn:".Length..][..8];
+    Assert(weightedRecord is not null &&
+           Math.Abs(weightedRecord.Weight - 2.5d) < 0.001d &&
+           listedLearning.Any(record => record.Id == learnedRecord.Id) &&
+           replyLearning.FindById(shortLearningId, null)?.Id == learnedRecord.Id,
+        "reply learning management should support weight updates, listing and short id lookup");
+    var statsBeforeDelete = replyLearning.GetStats(null);
+    Assert(statsBeforeDelete.Total > 0 && statsBeforeDelete.AverageWeight > 0,
+        "reply learning stats should report stored examples and normalized weights");
+    contextDatabase.Database
+        .GetCollection<ReplyLearningRecord>("reply_learning_examples")
+        .DeleteMany(record => record.PersonaId == learningPersona);
     var explicitTurnId = Guid.NewGuid().ToString("N");
     var explicitTurn = new TurnContext(
         explicitTurnId,
@@ -1032,7 +1776,13 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
         DateTimeOffset.UtcNow);
     turnRecorder.RecordDelivered(
         explicitTurn,
-        DeliveredTurn.TextOnly("统一轮次回复已送达", "neutral", "ai-reply"));
+        DeliveredTurn.TextOnly("统一轮次回复已送达", "neutral", "ai-reply") with
+        {
+            PlatformMessageId = 778899,
+            SocialIntentId = "capability_query",
+            DialogueAct = nameof(DialogueAct.Answer),
+            CandidateSummary = "保留首版，候选 1，首版 90.0，最佳 90.0"
+        });
 
     const string proactiveProbe = "这是一条应当进入后续上下文的主动消息";
     contextActivities.RecordProactiveSent(contextGroupId, proactiveProbe);
@@ -1051,7 +1801,10 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
     Assert(deliveredTurns.Exists(turn =>
             turn.TurnId == explicitTurnId &&
             turn.SourceMessageId == "99881" &&
-            turn.AssistantText == "统一轮次回复已送达"),
+            turn.AssistantText == "统一轮次回复已送达" &&
+            turn.AssistantMessageId == 778899 &&
+            turn.SocialIntentId == "capability_query" &&
+            turn.DialogueAct == nameof(DialogueAct.Answer)),
         "the durable turn ledger must retain the exact delivered explicit reply");
     Assert(deliveredTurns.Exists(turn =>
             turn.TurnId == proactiveTurn.TurnId &&
@@ -1084,6 +1837,11 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
     Assert(contextActivities.GetRecentMessages(contextGroupId, 50)
             .Count(message => message.IsBot && message.Content == proactiveProbe) == 1,
         "specialized proactive accounting plus the turn recorder must not duplicate group activity");
+    Assert(contextActivities.GetRecentMessages(contextGroupId, 50)
+            .Any(message => message.IsBot &&
+                            message.Content == "统一轮次回复已送达" &&
+                            message.MessageId == 778899),
+        "group activity should retain the native message id for delivered bot replies");
 
     contextSession.Messages.AddRange(
     [
@@ -1209,6 +1967,229 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
         (memory.GroupId == null && memory.UserId == currentUserId + 1));
 }
 
+var evidenceDatabaseName = $"knowledge_evidence_test_{Guid.NewGuid():N}";
+using (var evidenceDatabase = new HimeDbContext(evidenceDatabaseName))
+{
+    var evidenceOptions = new AgentToolsOptions
+    {
+        Enabled = true,
+        Tools =
+        [
+            new AgentToolDefinition
+            {
+                Name = "evidence_probe",
+                Enabled = true,
+                CacheEvidence = true,
+                EvidenceConfidence = 0.82
+            }
+        ],
+        Knowledge = new AgentKnowledgeOptions
+        {
+            Enabled = true,
+            InjectExactCache = true,
+            InjectRecentLedger = true,
+            CacheTtlHours = 24,
+            LedgerTtlHours = 24,
+            RecentLedgerEntries = 1,
+            MinimumCacheConfidence = 0.65
+        }
+    };
+    var evidenceService = new KnowledgeEvidenceService(
+        evidenceDatabase,
+        new TestOptionsMonitor<AgentToolsOptions>(evidenceOptions),
+        NullLogger<KnowledgeEvidenceService>.Instance);
+    var evidenceTurnId = Guid.NewGuid().ToString("N");
+    ChatMessage[] evidenceHistory =
+    [
+        new()
+        {
+            Role = "user",
+            Content = "读取示例页面的标题",
+            UserId = 10001,
+            GroupId = 20001,
+            AccountId = "test-account",
+            TurnId = evidenceTurnId
+        }
+    ];
+    var evidenceOutput = JsonSerializer.Serialize(new
+    {
+        decision = "use-as-untrusted-evidence",
+        finalUrl = "https://example.com/",
+        title = "Example Domain",
+        text = "Example Domain evidence body"
+    });
+    var evidenceSession = JsonSerializer.Serialize(new[]
+    {
+        new
+        {
+            parts = new object[]
+            {
+                new
+                {
+                    type = "tool",
+                    tool = "evidence_probe",
+                    state = new
+                    {
+                        status = "completed",
+                        input = new { url = "https://example.com" },
+                        output = evidenceOutput
+                    }
+                }
+            }
+        }
+    });
+    evidenceService.RecordSession(
+        evidenceHistory,
+        10001,
+        "页面标题是 Example Domain。",
+        evidenceSession);
+
+    var exactEvidenceContext = evidenceService.BuildPromptContext(evidenceHistory, 10001);
+    Assert(exactEvidenceContext.Contains("Example Domain", StringComparison.Ordinal) &&
+           exactEvidenceContext.Contains("exact_query_cache", StringComparison.Ordinal),
+        "an identical query should receive persisted real tool evidence");
+
+    ChatMessage[] relevantFollowUp =
+    [
+        evidenceHistory[0],
+        new()
+        {
+            Role = "assistant",
+            Content = "页面标题是 Example Domain。",
+            GroupId = 20001,
+            AccountId = "test-account",
+            TurnId = evidenceTurnId
+        },
+        new()
+        {
+            Role = "user",
+            Content = "这个结论的依据是什么？",
+            UserId = 10001,
+            GroupId = 20001,
+            AccountId = "test-account",
+            TurnId = Guid.NewGuid().ToString("N")
+        }
+    ];
+    var ledgerContext = evidenceService.BuildPromptContext(relevantFollowUp, 10001);
+    Assert(ledgerContext.Contains("recent_claim_ledger", StringComparison.Ordinal) &&
+           ledgerContext.Contains("https://example.com/", StringComparison.Ordinal),
+        "a direct follow-up should receive the previous turn's evidence ledger");
+
+    ChatMessage[] unrelatedConversation =
+    [
+        new()
+        {
+            Role = "assistant",
+            Content = "这是完全不同的一条历史回复。",
+            GroupId = 20001,
+            AccountId = "test-account",
+            TurnId = Guid.NewGuid().ToString("N")
+        },
+        new()
+        {
+            Role = "user",
+            Content = "今天聊点别的。",
+            UserId = 10001,
+            GroupId = 20001,
+            AccountId = "test-account",
+            TurnId = Guid.NewGuid().ToString("N")
+        }
+    ];
+    Assert(string.IsNullOrWhiteSpace(evidenceService.BuildPromptContext(unrelatedConversation, 10001)),
+        "an unrelated turn must not be polluted by a recent evidence ledger");
+}
+
+var focusDatabaseName = $"conversation_focus_test_{Guid.NewGuid():N}";
+var focusDatabasePath = Path.Combine(AppContext.BaseDirectory, "data", focusDatabaseName + ".db");
+using (var focusDatabase = new HimeDbContext(focusDatabaseName))
+{
+    var focusMonitor = new TestOptionsMonitor<ConversationFocusOptions>(configuredFocus);
+    var focusWriteBehind = new LiteDbWriteBehindService(
+        Options.Create(new LiteDbWriteBehindOptions()),
+        NullLogger<LiteDbWriteBehindService>.Instance);
+    var focusActivity = new GroupActivityService(
+        focusDatabase,
+        focusWriteBehind,
+        new TestOptionsMonitor<GroupActivityOptions>(new GroupActivityOptions()),
+        stickerLabels,
+        focusMonitor);
+    var topicGraph = new ConversationTopicGraph(focusMonitor);
+    var focusAi = new TestAiClient(
+        """{"target":"unknown","target_user_id":null,"reply_mode":"stay_silent","confidence":0.95,"reason":"not addressed"}""");
+    var focusResolver = new ConversationFocusResolver(
+        focusAi,
+        focusActivity,
+        topicGraph,
+        focusMonitor,
+        NullLogger<ConversationFocusResolver>.Instance);
+    const long focusGroupId = 880001;
+    const long focusBotId = 990001;
+    const long focusUserId = 770001;
+    var focusChannel = new TestReplyChannel("focus-test", focusBotId, true, focusGroupId);
+    var opening = new IncomingMessage(
+        "qq", "focus-test", "focus-opening", $"qq:group:{focusGroupId}",
+        focusGroupId, 501, focusBotId, focusUserId, focusGroupId,
+        "今天的风声好像有点不一样", false, false, false, focusChannel, null!);
+    var openingTopic = topicGraph.Resolve(opening, []);
+    focusActivity.RecordIncoming(
+        focusGroupId, "focus-test", focusUserId, "tester", opening.Text, [],
+        messageId: opening.MessageId,
+        accountId: opening.AccountId,
+        topicId: openingTopic.TopicId,
+        conversationParticipants: openingTopic.Participants);
+    focusActivity.RecordBotReply(
+        focusGroupId,
+        "嗯，像是要变天了。",
+        replyToMessageId: opening.MessageId,
+        replyToUserId: focusUserId,
+        topicId: openingTopic.TopicId,
+        conversationParticipants: openingTopic.Participants);
+
+    var continuation = new IncomingMessage(
+        "qq", "focus-test", "focus-continuation", $"qq:group:{focusGroupId}",
+        focusGroupId, 502, focusBotId, focusUserId, focusGroupId,
+        "那后来呢", false, false, false, focusChannel, null!);
+    var continuationDecision = await focusResolver.ResolveAsync(continuation);
+    Assert(continuationDecision.IsDirectedToBot &&
+           continuationDecision.TopicId == openingTopic.TopicId &&
+           focusAi.Calls == 0,
+        "a direct continuation after the bot must inherit the topic without a semantic model call");
+    var selfAliasFocusMessage = new IncomingMessage(
+        "qq", "focus-test", "focus-self-alias", $"qq:group:{focusGroupId}",
+        focusGroupId, 5021, focusBotId, focusBotId, focusGroupId,
+        "\u79e7\u79e7 help me test this", false, false, false, focusChannel, null!);
+    var selfAliasDecision = await focusResolver.ResolveAsync(selfAliasFocusMessage);
+    Assert(selfAliasDecision.IsDirectedToBot &&
+           selfAliasDecision.Reason.Contains("configured-bot-alias", StringComparison.Ordinal) &&
+           focusAi.Calls == 0,
+        "a self message released by the alias gate must still be resolved as bot-directed by configured aliases");
+
+    var replyToOther = continuation with
+    {
+        CorrelationId = "focus-other-reply",
+        MessageId = 503,
+        ReplyToUserId = 660001,
+        MentionedUserIds = [660001],
+        HasAnyMention = true
+    };
+    var otherDecision = await focusResolver.ResolveAsync(replyToOther);
+    Assert(otherDecision.Target == ConversationTargetKind.SpecificUser &&
+           otherDecision.ReplyMode == FocusReplyMode.StaySilent &&
+           focusAi.Calls == 0,
+        "an explicit reply or mention to another member must never be consumed by the bot");
+
+    var unrelated = new IncomingMessage(
+        "qq", "focus-test", "focus-unrelated", "qq:group:880002",
+        880002, 601, focusBotId, 770002, 880002,
+        "今天晚饭吃什么", false, false, false,
+        new TestReplyChannel("focus-test", focusBotId, true, 880002), null!);
+    var unrelatedDecision = await focusResolver.ResolveAsync(unrelated);
+    Assert(unrelatedDecision.ReplyMode == FocusReplyMode.StaySilent &&
+           focusAi.Calls == 0,
+        "an unrelated group message with no shared topic must stay silent without spending a model call");
+}
+File.Delete(focusDatabasePath);
+
 Console.WriteLine("PASS: intelligence routing, context limits, and local vision checks");
 
 static void Assert(bool condition, string message)
@@ -1235,6 +2216,32 @@ file sealed class TestOptionsMonitor<T>(T value) : IOptionsMonitor<T>
     public IDisposable? OnChange(Action<T, string?> listener) => null;
 }
 
+file sealed class MutableOptionsMonitor<T>(T initial) : IOptionsMonitor<T>
+{
+    private T _value = initial;
+    private Action<T, string?>? _listener;
+
+    public T CurrentValue => _value;
+    public T Get(string? name) => _value;
+
+    public IDisposable OnChange(Action<T, string?> listener)
+    {
+        _listener += listener;
+        return new CallbackDisposable(() => _listener -= listener);
+    }
+
+    public void Update(T value)
+    {
+        _value = value;
+        _listener?.Invoke(value, null);
+    }
+
+    private sealed class CallbackDisposable(Action dispose) : IDisposable
+    {
+        public void Dispose() => dispose();
+    }
+}
+
 file sealed class TestAiClient(string response = "") : IAiClient
 {
     public int Calls { get; private set; }
@@ -1249,6 +2256,27 @@ file sealed class TestAiClient(string response = "") : IAiClient
         Calls++;
         return Task.FromResult(response);
     }
+}
+
+file sealed class TestReplyChannel(
+    string accountId,
+    long selfId,
+    bool isGroup,
+    long targetId) : IReplyChannel
+{
+    public string AccountId => accountId;
+    public long SelfId => selfId;
+    public bool IsGroup => isGroup;
+    public long TargetId => targetId;
+    public Task SendTextAsync(string text, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+    public Task SendImageAsync(
+        string localPath,
+        ImageSubType subType = ImageSubType.Normal,
+        CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+    public Task SendAudioAsync(string localPath, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 }
 
 file sealed class SingleHttpClientFactory(HttpClient client) : IHttpClientFactory

@@ -29,15 +29,22 @@ public sealed class ConversationContextAssembler(
     IChatService chat,
     IGroupActivityService groupActivities,
     ParticipantIdentityService participants,
-    IOptions<ContextAssemblyOptions> options)
+    IOptions<ContextAssemblyOptions> options,
+    IOptionsMonitor<ConversationFocusOptions> focusOptions)
 {
     private readonly ContextAssemblyOptions _options = options.Value;
+    private string BotDisplayName =>
+        string.IsNullOrWhiteSpace(focusOptions.CurrentValue.BotDisplayName)
+            ? "assistant"
+            : focusOptions.CurrentValue.BotDisplayName.Trim();
 
     public ConversationContextSnapshot Build(
         long userId,
         string nickname,
         long? groupId,
-        string? focus = null)
+        string? focus = null,
+        string? topicId = null,
+        IReadOnlyList<long>? conversationParticipants = null)
     {
         var stored = chat.GetHistory(userId, groupId, focus);
         var hasTimeRange = MemoryTimeRangeParser.TryParse(focus, out var timeRange);
@@ -60,7 +67,7 @@ public sealed class ConversationContextAssembler(
             .Select(message => message.Content)
             .Where(content => !string.IsNullOrWhiteSpace(content))
             .ToArray();
-        var assistantReplies = stored
+        var storedAssistantReplies = stored
             .Where(message => IsRole(message, "assistant"))
             .Select(message => message.Content)
             .Where(content => !string.IsNullOrWhiteSpace(content))
@@ -83,11 +90,39 @@ public sealed class ConversationContextAssembler(
                     Time = DateTime.UtcNow
                 });
             }
-            return new ConversationContextSnapshot(privateMessages, assistantReplies);
+            return new ConversationContextSnapshot(privateMessages, storedAssistantReplies);
         }
+
+        var recentActivity = groupActivities
+            .GetRecentMessages(
+                groupId.Value,
+                Math.Clamp(_options.GroupActivityScanLimit, 4, 100));
+        var topicActivity = string.IsNullOrWhiteSpace(topicId)
+            ? Array.Empty<GroupActivityMessage>()
+            : recentActivity
+                .Where(message =>
+                    string.Equals(message.TopicId, topicId, StringComparison.Ordinal))
+                .ToArray();
+        var hasTopicActivity = topicActivity.Length > 0;
+        var assistantReplies = hasTopicActivity
+            ? topicActivity
+                .Where(message => message.IsBot)
+                .Select(message => message.Content)
+                .Where(content => !string.IsNullOrWhiteSpace(content))
+                .TakeLast(20)
+                .ToArray()
+            : storedAssistantReplies;
+        var participantSet = (conversationParticipants ?? [])
+            .Append(userId)
+            .Where(id => id > 0)
+            .ToHashSet();
 
         var turns = BuildTurns(scopedStored)
             .Where(turn => !participants.IsExternalBot("qq", turn.User.UserId ?? 0))
+            .Where(turn =>
+                !hasTopicActivity ||
+                participantSet.Count == 0 ||
+                participantSet.Contains(turn.User.UserId ?? 0))
             .ToArray();
         var selected = new List<Turn>();
         selected.AddRange(turns
@@ -102,7 +137,9 @@ public sealed class ConversationContextAssembler(
 
         var evidence = new List<EvidenceLine>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var turn in selected.OrderBy(turn => turn.User.Time))
+        foreach (var turn in selected
+                     .Where(_ => !hasTopicActivity)
+                     .OrderBy(turn => turn.User.Time))
         {
             AddEvidence(evidence, seen, new EvidenceLine(
                 turn.User.Time,
@@ -116,7 +153,7 @@ public sealed class ConversationContextAssembler(
                 AddEvidence(evidence, seen, new EvidenceLine(
                     turn.Assistant.Time,
                     0,
-                    "Hime",
+                    BotDisplayName,
                     "assistant",
                     turn.Assistant.Content,
                 turn.User.UserId));
@@ -128,6 +165,7 @@ public sealed class ConversationContextAssembler(
         // them. Add every recent delivered assistant message and rely on AddEvidence
         // to remove replies already emitted by the paired-turn path.
         foreach (var assistant in scopedStored
+                     .Where(_ => !hasTopicActivity)
                      .Where(message => IsRole(message, "assistant"))
                      .TakeLast(20))
         {
@@ -141,39 +179,43 @@ public sealed class ConversationContextAssembler(
             AddEvidence(evidence, seen, new EvidenceLine(
                 assistant.Time,
                 0,
-                "Hime",
+                BotDisplayName,
                 "assistant",
                 assistant.Content,
                 replyTarget));
         }
 
-        var activity = groupActivities
-            .GetRecentMessages(
-                groupId.Value,
-                Math.Clamp(_options.GroupActivityScanLimit, 4, 100))
-            .Where(message => !message.IsBot)
-            .Where(message => !participants.IsExternalBot("qq", message.UserId))
-            .GroupBy(message => message.UserId)
-            .SelectMany(group =>
-            {
-                var limit = group.Key == userId
-                    ? Math.Clamp(_options.CurrentUserTurnLimit, 1, 20)
-                    : Math.Clamp(_options.OtherHumanTurnLimit, 0, 6);
-                return group.TakeLast(limit);
-            })
-            .OrderBy(message => message.Time)
-            .TakeLast(
-                Math.Clamp(_options.CurrentUserTurnLimit, 1, 20) +
-                Math.Clamp(_options.OtherHumanTotalLimit, 0, 20));
+        var activity = (hasTopicActivity ? topicActivity : recentActivity)
+            .Where(message =>
+                message.IsBot ||
+                !participants.IsExternalBot("qq", message.UserId));
+        activity = hasTopicActivity
+            ? activity
+                .OrderBy(message => message.Time)
+                .TakeLast(Math.Clamp(_options.GroupActivityScanLimit, 4, 100))
+            : activity
+                .Where(message => !message.IsBot)
+                .GroupBy(message => message.UserId)
+                .SelectMany(group =>
+                {
+                    var limit = group.Key == userId
+                        ? Math.Clamp(_options.CurrentUserTurnLimit, 1, 20)
+                        : Math.Clamp(_options.OtherHumanTurnLimit, 0, 6);
+                    return group.TakeLast(limit);
+                })
+                .OrderBy(message => message.Time)
+                .TakeLast(
+                    Math.Clamp(_options.CurrentUserTurnLimit, 1, 20) +
+                    Math.Clamp(_options.OtherHumanTotalLimit, 0, 20));
         foreach (var message in activity)
         {
             AddEvidence(evidence, seen, new EvidenceLine(
                 message.Time,
-                message.UserId,
-                message.Nickname,
-                "human",
+                message.IsBot ? 0 : message.UserId,
+                message.IsBot ? BotDisplayName : message.Nickname,
+                message.IsBot ? "assistant" : "human",
                 message.Content,
-                null));
+                message.ReplyToUserId));
         }
 
         var maximumCharacters = Math.Clamp(_options.MaximumMessageCharacters, 80, 1000);

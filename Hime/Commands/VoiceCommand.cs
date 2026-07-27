@@ -1,4 +1,5 @@
 using Hime.Services;
+using Microsoft.Extensions.Options;
 using Sora.Command.Attributes;
 using Sora.Core.Enums;
 using Sora.Entities.Events;
@@ -11,10 +12,12 @@ namespace Hime.Commands;
 public sealed class VoiceCommand
 {
     private readonly VoiceSynthesisService _voiceSynthesis;
+    private readonly VoiceSynthesisOptions _voiceOptions;
 
-    public VoiceCommand(VoiceSynthesisService voiceSynthesis)
+    public VoiceCommand(VoiceSynthesisService voiceSynthesis, IOptions<VoiceSynthesisOptions> voiceOptions)
     {
         _voiceSynthesis = voiceSynthesis;
+        _voiceOptions = voiceOptions.Value;
     }
 
     [Command(
@@ -202,7 +205,9 @@ public sealed class VoiceCommand
         string emotion)
     {
         double[] strengths = [1.00, 1.10, 1.15, 1.20, 1.25, 1.30, 1.35, 1.40, 1.45, 1.50];
-        const string voice = "yangyang-indextts2-faithful-a-emotion15";
+        var voice = string.IsNullOrWhiteSpace(_voiceOptions.EmotionComparisonVoice)
+            ? _voiceOptions.DefaultVoice
+            : _voiceOptions.EmotionComparisonVoice;
         await AiCommand.Reply(
             e,
             $"开始 faithful-a 情绪强度对比：{string.Join("、", strengths.Select(value => value.ToString("0.00")))}；情绪={emotion}。每个强度各生成一条相同文本的语音。");

@@ -127,7 +127,7 @@ public sealed class JobRequestService(
         if (string.IsNullOrWhiteSpace(payload))
         {
             await message.ReplyChannel.SendTextAsync(
-                "用法：/提醒 明天早上8点交报告\n也可以直接说“秧秧，20分钟后提醒我喝水”。",
+                _options.ReminderUsageHint,
                 cancellationToken);
             return;
         }
@@ -290,7 +290,7 @@ public sealed class JobRequestService(
                 parsed.EventReference is null
                     ? $"{parsed.Error}\n3分钟内直接补充即可；发送“取消”可以退出。"
                     : $"我查过已保存的事件、结构化事实和聊天记忆，还没有找到“{parsed.EventReference.EventName}”的明确时间。\n" +
-                      $"请告诉我它具体几点或哪天发生，例如“我每天20:00下班”；3分钟内有效。",
+                      $"请告诉我它具体几点或哪天发生，例如“{_options.EventAnchorPromptExample}”；3分钟内有效。",
                 cancellationToken);
             return;
         }

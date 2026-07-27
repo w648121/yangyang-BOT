@@ -1,6 +1,5 @@
-using System.Diagnostics;
 using System.Collections.Concurrent;
-using System.Threading.Channels;
+using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,36 +7,66 @@ using Microsoft.Extensions.Options;
 namespace Hime.Services;
 
 /// <summary>
-/// Keeps messages from the same conversation in order while allowing unrelated
-/// groups and private chats to make progress independently. The bounded queues
-/// also prevent a burst of slow AI work from creating unlimited in-memory tasks.
+/// Preserves strict ordering inside one conversation without tying unrelated
+/// conversations to the same fixed partition. A global capacity and concurrency
+/// limit keep memory and slow model work bounded.
 /// </summary>
-public sealed class ConversationMessageDispatcher : BackgroundService
+public sealed class ConversationMessageDispatcher : IHostedService, IDisposable
 {
-    private readonly Channel<ConversationWorkItem>[] _partitions;
+    private readonly ConcurrentDictionary<long, ConversationLane> _lanes = new();
     private readonly ConcurrentDictionary<long, int> _pendingByConversation = new();
+    private readonly SemaphoreSlim _parallelism;
+    private readonly SemaphoreSlim _globalCapacity;
+    private readonly int _capacityPerConversation;
+    private readonly int _maximumConcurrency;
     private readonly ILogger<ConversationMessageDispatcher> _logger;
     private readonly RuntimeDiagnostics _diagnostics;
+    private readonly CancellationTokenSource _shutdown = new();
     private long _pendingTotal;
+    private volatile bool _accepting;
 
     public ConversationMessageDispatcher(
         IOptions<MessageDispatchOptions> options,
         ILogger<ConversationMessageDispatcher> logger,
         RuntimeDiagnostics diagnostics)
     {
-        var partitionCount = Math.Clamp(options.Value.PartitionCount, 1, 32);
-        var capacity = Math.Clamp(options.Value.CapacityPerPartition, 8, 512);
-        _partitions = Enumerable.Range(0, partitionCount)
-            .Select(_ => Channel.CreateBounded<ConversationWorkItem>(new BoundedChannelOptions(capacity)
-            {
-                SingleReader = true,
-                SingleWriter = false,
-                FullMode = BoundedChannelFullMode.Wait,
-                AllowSynchronousContinuations = false
-            }))
-            .ToArray();
+        _maximumConcurrency = Math.Clamp(options.Value.PartitionCount, 1, 32);
+        _capacityPerConversation = Math.Clamp(options.Value.CapacityPerPartition, 8, 512);
+        _parallelism = new SemaphoreSlim(_maximumConcurrency, _maximumConcurrency);
+        _globalCapacity = new SemaphoreSlim(
+            checked(_maximumConcurrency * _capacityPerConversation),
+            checked(_maximumConcurrency * _capacityPerConversation));
         _logger = logger;
         _diagnostics = diagnostics;
+    }
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _accepting = true;
+        return Task.CompletedTask;
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _accepting = false;
+        await _shutdown.CancelAsync();
+
+        var runners = _lanes.Values
+            .Select(lane => lane.RunnerTask)
+            .Where(task => task is not null)
+            .Cast<Task>()
+            .ToArray();
+        if (runners.Length == 0)
+            return;
+
+        try
+        {
+            await Task.WhenAll(runners).WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal host shutdown or caller timeout.
+        }
     }
 
     public async ValueTask EnqueueAsync(
@@ -47,28 +76,85 @@ public sealed class ConversationMessageDispatcher : BackgroundService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(action);
-        var partition = GetPartition(conversationKey);
+        if (!_accepting)
+            throw new InvalidOperationException("The conversation dispatcher is not accepting messages.");
+
         var started = Stopwatch.GetTimestamp();
         _pendingByConversation.AddOrUpdate(conversationKey, 1, (_, count) => count + 1);
         Interlocked.Increment(ref _pendingTotal);
         _diagnostics.Increment("messages.queued");
         var waitOperation = _diagnostics.Begin("queue.message.wait");
+        var queued = false;
+        ConversationLane? lane = null;
+        var laneSlotHeld = false;
+        var globalSlotHeld = false;
+
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _shutdown.Token);
+        var token = linkedCancellation.Token;
         try
         {
-            await _partitions[partition].Writer.WriteAsync(
-                new ConversationWorkItem(conversationKey, description, action),
-                cancellationToken);
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                lane = _lanes.GetOrAdd(
+                    conversationKey,
+                    key => new ConversationLane(key, _capacityPerConversation));
+
+                await lane.Capacity.WaitAsync(token);
+                laneSlotHeld = true;
+                await _globalCapacity.WaitAsync(token);
+                globalSlotHeld = true;
+
+                lock (lane.Sync)
+                {
+                    if (lane.Retired)
+                    {
+                        lane.Capacity.Release();
+                        _globalCapacity.Release();
+                        laneSlotHeld = false;
+                        globalSlotHeld = false;
+                        continue;
+                    }
+
+                    if (!_accepting)
+                        throw new OperationCanceledException("The conversation dispatcher is stopping.", token);
+
+                    lane.Queue.Enqueue(new ConversationWorkItem(conversationKey, description, action));
+                    queued = true;
+                    laneSlotHeld = false;
+                    globalSlotHeld = false;
+                    if (!lane.IsRunning)
+                    {
+                        lane.IsRunning = true;
+                        lane.RunnerTask = Task.Run(
+                            () => RunLaneAsync(lane),
+                            CancellationToken.None);
+                    }
+                }
+
+                break;
+            }
         }
         catch
         {
+            if (laneSlotHeld)
+                lane?.Capacity.Release();
+            if (globalSlotHeld)
+                _globalCapacity.Release();
+            if (lane is not null)
+                TryRetireIdleLane(lane);
+            if (!queued)
+                CompleteConversationWork(conversationKey);
             waitOperation.Fail();
-            CompleteConversationWork(conversationKey);
             throw;
         }
         finally
         {
             waitOperation.Dispose();
         }
+
         var waited = Stopwatch.GetElapsedTime(started);
         if (waited >= TimeSpan.FromMilliseconds(250))
         {
@@ -87,53 +173,106 @@ public sealed class ConversationMessageDispatcher : BackgroundService
 
     public int BusyConversationCount => _pendingByConversation.Count;
 
-    public int PartitionCount => _partitions.Length;
+    /// <summary>
+    /// Retained for diagnostics/configuration compatibility. It now represents the
+    /// maximum number of conversations that may execute concurrently.
+    /// </summary>
+    public int PartitionCount => _maximumConcurrency;
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    public void Dispose()
     {
-        var workers = _partitions
-            .Select((channel, index) => RunPartitionAsync(channel.Reader, index, stoppingToken))
-            .ToArray();
-        return Task.WhenAll(workers);
+        _shutdown.Dispose();
+        _parallelism.Dispose();
+        _globalCapacity.Dispose();
+        foreach (var lane in _lanes.Values)
+            lane.Capacity.Dispose();
     }
 
-    public override Task StopAsync(CancellationToken cancellationToken)
+    private async Task RunLaneAsync(ConversationLane lane)
     {
-        foreach (var partition in _partitions)
-            partition.Writer.TryComplete();
-        return base.StopAsync(cancellationToken);
-    }
-
-    private async Task RunPartitionAsync(
-        ChannelReader<ConversationWorkItem> reader,
-        int partition,
-        CancellationToken cancellationToken)
-    {
-        await foreach (var item in reader.ReadAllAsync(cancellationToken))
+        try
         {
-            using var operation = _diagnostics.Begin("message.process");
-            try
+            while (true)
             {
-                await item.Action(cancellationToken);
+                ConversationWorkItem? item;
+                lock (lane.Sync)
+                {
+                    if (lane.Queue.Count == 0)
+                    {
+                        lane.Retired = true;
+                        lane.IsRunning = false;
+                        _lanes.TryRemove(new KeyValuePair<long, ConversationLane>(lane.Key, lane));
+                        return;
+                    }
+
+                    item = lane.Queue.Dequeue();
+                }
+
+                var enteredParallelSection = false;
+                using var operation = _diagnostics.Begin("message.process");
+                try
+                {
+                    await _parallelism.WaitAsync(_shutdown.Token);
+                    enteredParallelSection = true;
+                    await item.Action(_shutdown.Token);
+                }
+                catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+                {
+                    operation.Fail();
+                }
+                catch (Exception ex)
+                {
+                    operation.Fail();
+                    _logger.LogError(
+                        ex,
+                        "Conversation work failed (Key={Key}, Work={Work})",
+                        item.ConversationKey,
+                        item.Description);
+                }
+                finally
+                {
+                    if (enteredParallelSection)
+                        _parallelism.Release();
+                    lane.Capacity.Release();
+                    _globalCapacity.Release();
+                    CompleteConversationWork(item.ConversationKey);
+                }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                operation.Fail();
-                _logger.LogError(
-                    ex,
-                    "Conversation work failed (Partition={Partition}, Key={Key}, Work={Work})",
-                    partition,
-                    item.ConversationKey,
-                    item.Description);
-            }
-            finally
-            {
-                CompleteConversationWork(item.ConversationKey);
-            }
+        }
+        finally
+        {
+            DrainAbandonedLane(lane);
+        }
+    }
+
+    private void DrainAbandonedLane(ConversationLane lane)
+    {
+        ConversationWorkItem[] abandoned;
+        lock (lane.Sync)
+        {
+            lane.Retired = true;
+            lane.IsRunning = false;
+            abandoned = lane.Queue.ToArray();
+            lane.Queue.Clear();
+            _lanes.TryRemove(new KeyValuePair<long, ConversationLane>(lane.Key, lane));
+        }
+
+        foreach (var item in abandoned)
+        {
+            lane.Capacity.Release();
+            _globalCapacity.Release();
+            CompleteConversationWork(item.ConversationKey);
+        }
+    }
+
+    private void TryRetireIdleLane(ConversationLane lane)
+    {
+        lock (lane.Sync)
+        {
+            if (lane.IsRunning || lane.Queue.Count > 0 || lane.Retired)
+                return;
+            lane.Retired = true;
+            _lanes.TryRemove(new KeyValuePair<long, ConversationLane>(lane.Key, lane));
         }
     }
 
@@ -155,10 +294,15 @@ public sealed class ConversationMessageDispatcher : BackgroundService
         }
     }
 
-    private int GetPartition(long conversationKey)
+    private sealed class ConversationLane(long key, int capacity)
     {
-        var hash = conversationKey.GetHashCode() & int.MaxValue;
-        return hash % _partitions.Length;
+        public long Key { get; } = key;
+        public object Sync { get; } = new();
+        public Queue<ConversationWorkItem> Queue { get; } = new();
+        public SemaphoreSlim Capacity { get; } = new(capacity, capacity);
+        public bool IsRunning { get; set; }
+        public bool Retired { get; set; }
+        public Task? RunnerTask { get; set; }
     }
 
     private sealed record ConversationWorkItem(

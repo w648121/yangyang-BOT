@@ -9,30 +9,19 @@ public sealed class StickerEmotionAnalyzer
     private readonly AnimeStickerTagger _animeTagger;
     private readonly OnnxStickerEmotionClassifier _visionClassifier;
     private readonly LocalImageInspector _imageInspector;
+    private readonly StickerLabelVocabulary _labels;
 
     public StickerEmotionAnalyzer(
         AnimeStickerTagger animeTagger,
         OnnxStickerEmotionClassifier visionClassifier,
-        LocalImageInspector imageInspector)
+        LocalImageInspector imageInspector,
+        StickerLabelVocabulary labels)
     {
         _animeTagger = animeTagger;
         _visionClassifier = visionClassifier;
         _imageInspector = imageInspector;
+        _labels = labels;
     }
-
-    private static readonly IReadOnlyDictionary<string, string[]> Keywords =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["happy"] = ["哈哈", "笑死", "笑", "好耶", "开心", "乐", "可爱", "喜欢", "牛", "草", "😂", "🤣", "😆", "😁", "😊", "😄"],
-            ["shy"] = ["害羞", "脸红", "羞", "捂脸", "心动", "🥰", "😘", "😳", "🙈"],
-            ["surprised"] = ["震惊", "卧槽", "我超", "什么", "不会吧", "竟然", "😱", "🤯", "😮", "😲", "!?", "？！"],
-            ["embarrassed"] = ["尴尬", "绷不住", "裂开", "汗流", "脚趾", "蚌埠住", "😅", "🙃"],
-            ["angry"] = ["生气", "气死", "愤怒", "恼火", "滚", "烦死", "无语", "😡", "🤬", "💢"],
-            ["sad"] = ["难过", "悲伤", "哭", "呜呜", "寄了", "完了", "心碎", "😭", "😢", "🥲", "💔"],
-            ["comforting"] = ["摸摸", "抱抱", "没事", "别怕", "加油", "安慰", "辛苦", "🫂", "🤗"],
-            ["serious"] = ["认真", "严肃", "警告", "注意", "正经", "重要"],
-            ["proud"] = ["得意", "骄傲", "厉害吧", "我真棒", "就这", "😎", "🏆"]
-        };
 
     public StickerEmotionEvidence Analyze(string imagePath, string? contextText)
     {
@@ -66,7 +55,7 @@ public sealed class StickerEmotionAnalyzer
         var fromVision = _visionClassifier.Analyze(imagePath);
         if (fromVision is not null)
         {
-            if (fromContext != "neutral")
+            if (fromContext != _labels.FallbackEmotion)
                 return new StickerEmotionEvidence(
                     fromContext,
                     fromContext == fromVision.Emotion ? 5 : 3,
@@ -88,14 +77,14 @@ public sealed class StickerEmotionAnalyzer
                 });
         }
 
-        return fromContext == "neutral"
+        return fromContext == _labels.FallbackEmotion
             ? new StickerEmotionEvidence(
-                "neutral",
+                _labels.FallbackEmotion,
                 1,
                 "fallback",
                 null,
                 inspection,
-                EmotionScores: new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["neutral"] = 1.0 })
+                EmotionScores: new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { [_labels.FallbackEmotion] = 1.0 })
             : new StickerEmotionEvidence(
                 fromContext,
                 2,
@@ -105,33 +94,38 @@ public sealed class StickerEmotionAnalyzer
                 EmotionScores: new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { [fromContext] = 0.65 });
     }
 
-    private static string AnalyzeContext(string? contextText)
+    private string AnalyzeContext(string? contextText)
     {
         if (string.IsNullOrWhiteSpace(contextText))
-            return "neutral";
+            return _labels.FallbackEmotion;
 
         var scores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (emotion, keywords) in Keywords)
+        foreach (var definition in _labels.All)
         {
-            foreach (var keyword in keywords)
+            var terms = definition.Aliases
+                .Append(definition.ChineseName)
+                .Append(definition.Canonical)
+                .Where(term => !string.IsNullOrWhiteSpace(term));
+            foreach (var keyword in terms)
             {
                 if (contextText.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                    scores[emotion] = scores.GetValueOrDefault(emotion) + (keyword.Length == 1 ? 1 : 2);
+                {
+                    scores[definition.BaseEmotion] =
+                        scores.GetValueOrDefault(definition.BaseEmotion) + (keyword.Length == 1 ? 1 : 2);
+                }
             }
         }
 
         return scores.Count == 0
-            ? "neutral"
+            ? _labels.FallbackEmotion
             : scores.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key).First().Key;
     }
 
-    private static string? TryReadEmotionFromFileName(string imagePath)
+    private string? TryReadEmotionFromFileName(string imagePath)
     {
         var stem = Path.GetFileNameWithoutExtension(imagePath);
         var prefix = stem.Split(['_', '-'], 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        return prefix is not null && ImageService.CanonicalEmotions.Contains(prefix, StringComparer.OrdinalIgnoreCase)
-            ? prefix.ToLowerInvariant()
-            : null;
+        return _labels.TryNormalizeBaseEmotion(prefix, out var emotion) ? emotion : null;
     }
 
     private static IReadOnlyDictionary<string, double> MergeEmotionScores(

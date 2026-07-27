@@ -36,7 +36,6 @@ public sealed record VoiceSynthesisResult(
 public sealed class VoiceSynthesisService
 {
     private const int MaxCapturedOutputCharacters = 16_384;
-    private const string CanonicalYangyangVoice = "yangyang-indextts2-faithful-a";
     private readonly VoiceSynthesisOptions _options;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<VoiceSynthesisService> _logger;
@@ -87,10 +86,8 @@ public sealed class VoiceSynthesisService
             return new(VoiceSynthesisStatus.InvalidRequest, Error: $"文本超过 {_options.MaxTextLength} 字限制。");
 
         voice = string.IsNullOrWhiteSpace(voice) ? _options.DefaultVoice : voice.Trim();
-        // `yangyang` is the stable public alias used by prompts and older commands.
-        // Keep that alias while allowing the underlying baseline engine to evolve.
-        if (string.Equals(voice, "yangyang", StringComparison.OrdinalIgnoreCase))
-            voice = CanonicalYangyangVoice;
+        if (_options.VoiceAliases.TryGetValue(voice, out var configuredAlias))
+            voice = configuredAlias.Trim();
         if (!_options.Voices.TryGetValue(voice, out var profile) || !profile.Enabled)
             return new(VoiceSynthesisStatus.InvalidRequest, Error: $"未知或已停用的声线：{voice}");
 
@@ -658,78 +655,26 @@ public sealed class VoiceSynthesisService
     /// IndexTTS2 的顺序为 happy、angry、sad、afraid、disgusted、melancholic、surprised、calm。
     /// 动态标签无法命中时回退到轻度 calm，避免强行使用不匹配的夸张情绪。
     /// </summary>
-    private static double[] ResolveIndexTtsEmotionVector(string? emotion)
+    private double[] ResolveIndexTtsEmotionVector(string? emotion)
     {
         var value = (emotion ?? "neutral").Trim().ToLowerInvariant();
+        var rule = _options.IndexTts.EmotionVectors.FirstOrDefault(candidate =>
+            candidate.Markers
+                .Where(marker => !string.IsNullOrWhiteSpace(marker))
+                .Any(marker => value.Contains(marker.Trim(), StringComparison.OrdinalIgnoreCase)));
+        return NormalizeEmotionVector(
+            rule?.Values ?? _options.IndexTts.FallbackEmotionVector);
+    }
+
+    private static double[] NormalizeEmotionVector(IReadOnlyList<double> configured)
+    {
         var vector = new double[8];
-
-        if (value.Contains("excited") || value.Contains("兴奋") || value.Contains("激动"))
-        {
-            vector[0] = 0.65;
-            vector[6] = 0.15;
-        }
-        else if (value.Contains("happy") || value.Contains("joy") || value.Contains("开心") ||
-                 value.Contains("喜悦") || value.Contains("proud") || value.Contains("得意"))
-        {
-            vector[0] = 0.62;
-        }
-        else if (value.Contains("annoy") || value.Contains("烦") || value.Contains("不耐"))
-        {
-            vector[1] = 0.42;
-            vector[4] = 0.12;
-        }
-        else if (value.Contains("angry") || value.Contains("anger") || value.Contains("生气") || value.Contains("愤怒"))
-        {
-            vector[1] = 0.65;
-        }
-        else if (value.Contains("melanch") || value.Contains("忧郁") || value.Contains("孤独") || value.Contains("失落"))
-        {
-            vector[5] = 0.58;
-            vector[2] = 0.18;
-        }
-        else if (value.Contains("sad") || value.Contains("悲") || value.Contains("难过"))
-        {
-            vector[2] = 0.62;
-            vector[5] = 0.20;
-        }
-        else if (value.Contains("fear") || value.Contains("afraid") || value.Contains("害怕") ||
-                 value.Contains("恐惧") || value.Contains("anxious") || value.Contains("焦虑"))
-        {
-            vector[3] = 0.58;
-        }
-        else if (value.Contains("disgust") || value.Contains("嫌弃") || value.Contains("厌恶"))
-        {
-            vector[4] = 0.58;
-        }
-        else if (value.Contains("surpris") || value.Contains("惊") || value.Contains("震惊"))
-        {
-            vector[6] = 0.62;
-        }
-        else if (value.Contains("shy") || value.Contains("embarrass") || value.Contains("害羞") || value.Contains("尴尬"))
-        {
-            vector[0] = 0.20;
-            vector[3] = 0.12;
-            vector[7] = 0.28;
-        }
-        else if (value.Contains("comfort") || value.Contains("安慰") || value.Contains("gentle") || value.Contains("温柔"))
-        {
-            vector[0] = 0.10;
-            vector[7] = 0.48;
-        }
-        else if (value.Contains("serious") || value.Contains("严肃") || value.Contains("认真"))
-        {
-            vector[1] = 0.08;
-            vector[7] = 0.42;
-        }
-        else
-        {
-            vector[7] = 0.35;
-        }
-
+        for (var index = 0; index < Math.Min(vector.Length, configured.Count); index++)
+            vector[index] = Math.Clamp(configured[index], 0, 1);
         return vector;
     }
 
-    private static GptSoVitsEmotionReference? ResolveEmotionReference(
+    private GptSoVitsEmotionReference? ResolveEmotionReference(
         GptSoVitsVoiceProfile profile,
         string? emotion)
     {
@@ -740,14 +685,9 @@ public sealed class VoiceSynthesisService
         if (profile.EmotionReferences.TryGetValue(normalized, out var exact))
             return exact;
 
-        var fallback = normalized switch
-        {
-            "proud" => "happy",
-            "embarrassed" => "shy",
-            "angry" => "serious",
-            "surprised" => "happy",
-            _ => "neutral"
-        };
+        var fallback = _options.EmotionAliases.TryGetValue(normalized, out var configuredAlias)
+            ? configuredAlias.Trim()
+            : "neutral";
         return profile.EmotionReferences.TryGetValue(fallback, out var mapped) ? mapped : null;
     }
 

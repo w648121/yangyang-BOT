@@ -30,6 +30,7 @@ public sealed class PersonaPlotKnowledgeService
 
     public string BuildVersionIndex()
     {
+        var displayName = _options.CurrentValue.DisplayName.Trim();
         var groups = Load()
             .GroupBy(item => item.Version, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(group => VersionSortKey(group.Key))
@@ -38,7 +39,7 @@ public sealed class PersonaPlotKnowledgeService
             .ToArray();
         return groups.Length == 0
             ? "剧情资料库尚未加载。"
-            : "秧秧剧情资料库版本\n" + string.Join('\n', groups) + $"\n合计：{Count} 个结构化事件";
+            : $"{displayName}剧情资料库版本\n" + string.Join('\n', groups) + $"\n合计：{Count} 个结构化事件";
     }
 
     public string BuildSearchReport(string? query)
@@ -88,9 +89,10 @@ public sealed class PersonaPlotKnowledgeService
             if (!result.LooksLikePlotQuestion)
                 return string.Empty;
 
-            return """
+            var displayName = _options.CurrentValue.DisplayName.Trim();
+            return $$"""
                 <plot_knowledge_guard>
-                当前经过核验的秧秧剧情库没有找到与用户问题对应的事件。
+                当前经过核验的{{displayName}}剧情库没有找到与用户问题对应的事件。
                 必须明确说“我目前没有查到对应的剧情记录”或请用户补充线索；不得把陌生地名自动当成真实地点，不得虚构流息、战斗、相遇、承诺或人物关系来填空。
                 如果只是名称疑似写错，但没有高置信度别名命中，也不要擅自替用户决定正确名称。
                 </plot_knowledge_guard>
@@ -178,10 +180,9 @@ public sealed class PersonaPlotKnowledgeService
         _options.CurrentValue.PlotQuestionSignals
             .Where(signal => !string.IsNullOrWhiteSpace(signal))
             .Any(signal => value.Contains(signal.Trim(), StringComparison.OrdinalIgnoreCase)) &&
-        (value.Contains("秧秧", StringComparison.OrdinalIgnoreCase) ||
-         value.Contains("玄翎", StringComparison.OrdinalIgnoreCase) ||
-         value.Contains("漂泊者", StringComparison.OrdinalIgnoreCase) ||
-         value.Contains("鸣潮", StringComparison.OrdinalIgnoreCase));
+        _options.CurrentValue.PlotIdentityMarkers
+            .Where(marker => !string.IsNullOrWhiteSpace(marker))
+            .Any(marker => value.Contains(marker.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private static IReadOnlySet<string> ExtractTerms(string value)
     {

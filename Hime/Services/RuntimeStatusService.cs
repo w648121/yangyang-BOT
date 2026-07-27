@@ -8,7 +8,6 @@ namespace Hime.Services;
 /// <summary>Builds a sanitized operational snapshot shared by the dashboard and admin command.</summary>
 public sealed class RuntimeStatusService
 {
-    private static readonly int[] DependencyPorts = [3010, 3100, 8765, 9882, 42116];
     private readonly RuntimeDiagnostics _diagnostics;
     private readonly ConversationMessageDispatcher _messages;
     private readonly ScheduledReplyDispatcher _scheduled;
@@ -19,6 +18,7 @@ public sealed class RuntimeStatusService
     private readonly LiteDbWriteBehindService _databaseWrites;
     private readonly OpenCodeServerService _openCodeServer;
     private readonly OpenCodeAgentClient _openCodeAgent;
+    private readonly RuntimeDiagnosticsOptions _runtimeOptions;
     private readonly DiagnosticsDashboardOptions _dashboard;
 
     public RuntimeStatusService(
@@ -32,6 +32,7 @@ public sealed class RuntimeStatusService
         LiteDbWriteBehindService databaseWrites,
         OpenCodeServerService openCodeServer,
         OpenCodeAgentClient openCodeAgent,
+        IOptions<RuntimeDiagnosticsOptions> runtimeOptions,
         IOptions<DiagnosticsDashboardOptions> dashboard)
     {
         _diagnostics = diagnostics;
@@ -44,6 +45,7 @@ public sealed class RuntimeStatusService
         _databaseWrites = databaseWrites;
         _openCodeServer = openCodeServer;
         _openCodeAgent = openCodeAgent;
+        _runtimeOptions = runtimeOptions.Value;
         _dashboard = dashboard.Value;
     }
 
@@ -55,9 +57,12 @@ public sealed class RuntimeStatusService
             .GetActiveTcpListeners()
             .Select(endpoint => endpoint.Port)
             .ToHashSet();
-        var services = DependencyPorts.ToDictionary(
-            port => port.ToString(),
-            port => listeningPorts.Contains(port));
+        var services = _runtimeOptions.DependencyPorts
+            .Where(port => port is > 0 and <= 65535)
+            .Distinct()
+            .ToDictionary(
+                port => port.ToString(),
+                port => listeningPorts.Contains(port));
         var circuit = _openCodeAgent.CircuitStatus;
 
         var queues = new RuntimeQueueSnapshot(

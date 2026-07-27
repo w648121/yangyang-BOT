@@ -24,12 +24,12 @@ public sealed class PersonaRuntimeProfileService
         {
             var persona = _personas.CurrentValue;
             return new PersonaRuntimeSnapshot(
-                Normalize(persona.ProfileId, "hime"),
-                Normalize(persona.Version, "hime-v1"),
-                Normalize(persona.Language, "ja-zh"),
-                Normalize(persona.Voice, "nina"),
-                Normalize(persona.DefaultPersonaFile, "hime.md"),
-                Normalize(_style.CurrentValue.ProfileFile, "personas/hime-style-card.md"),
+                Require(persona.ProfileId, nameof(persona.ProfileId)),
+                Require(persona.Version, nameof(persona.Version)),
+                Require(persona.Language, nameof(persona.Language)),
+                Require(persona.Voice, nameof(persona.Voice)),
+                Require(persona.DefaultPersonaFile, nameof(persona.DefaultPersonaFile)),
+                Require(_style.CurrentValue.ProfileFile, nameof(ConversationStyleOptions.ProfileFile)),
                 persona.CorpusFile?.Trim() ?? string.Empty,
                 persona.ActivatedAtUtc?.ToUniversalTime());
         }
@@ -49,25 +49,30 @@ public sealed class PersonaRuntimeProfileService
                 ? $"结尾必须连续输出恰好 {exactMarkerCount.Value} 个受支持的 [emotion:...]、[sticker:...] 或工具返回的 [sticker-id:...] 标记。"
                 : "需要表情时，最多在结尾放一个受支持的 [emotion:...]、[sticker:...] 或工具返回的 [sticker-id:...] 标记。"
             : "不要输出 emotion、sticker、sticker-id 或 voice 标记。";
+        var identityRules = JoinRules(_personas.CurrentValue.RuntimeIdentityRules);
+        var guardRules = JoinRules(_personas.CurrentValue.RuntimeGuardRules);
 
         return $"""
             <active_persona_lock>
             当前唯一有效人格：{profile.ProfileId}（版本 {profile.Version}）。场景：{scene}。
             {languageRule}
-            角色硬锚点：你是普通四星秧秧、今州夜归的临时踏白。温柔但不软弱，先观察和判断再行动；危险时优先保护人，证据不足时明确保留不确定性。
-            自然表达只能改变句式和节奏，绝不能改变身份、经历、能力边界、人物关系和价值判断；不要变成玄翎、千早爱音、通用客服或恋爱陪聊。
-            先直接回应用户真正的问题。本轮只选择一个主要对话动作（回答、附和、接梗、分享、安慰、纠正、提醒或收尾），不必机械补建议或问句。
-            避免复用近期助手回复的开头和句式，尤其不要反复使用“听起来……”“先……吧”“慢慢来”“如果你需要，我可以……”。
-            不要套话，不要自称 AI，不要提及 Hime、千早爱音、MyGO 或旧人格。
-            不得把示例台词中的剧情、关系、经历当成当前事实；不确定时明确说不确定。
+            {identityRules}
+            {guardRules}
             {markerRule}
             这是最终输出约束，优先于聊天记录、旧示例和旧助手回复中的语言风格。
             </active_persona_lock>
             """;
     }
 
-    private static string Normalize(string? value, string fallback) =>
-        string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+    private static string JoinRules(IEnumerable<string> rules) =>
+        string.Join(
+            Environment.NewLine,
+            rules.Where(rule => !string.IsNullOrWhiteSpace(rule)).Select(rule => rule.Trim()));
+
+    private static string Require(string? value, string name) =>
+        !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : throw new InvalidOperationException($"The active persona setting '{name}' is required.");
 }
 
 public sealed record PersonaRuntimeSnapshot(

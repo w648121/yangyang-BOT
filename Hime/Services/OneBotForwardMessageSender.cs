@@ -47,7 +47,7 @@ public sealed class OneBotForwardMessageSender
             type = "node",
             data = new
             {
-                name = string.IsNullOrWhiteSpace(_options.ForwardNickname) ? "秧秧" : _options.ForwardNickname.Trim(),
+                name = _options.ForwardNickname.Trim(),
                 uin = selfId.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 content = new object[]
                 {

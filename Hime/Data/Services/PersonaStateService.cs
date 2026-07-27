@@ -14,36 +14,49 @@ namespace Hime.Data.Services;
 /// </summary>
 public sealed class PersonaStateService : IPersonaStateService
 {
-    private static readonly Regex WorkEndTimeRegex = new(
-        @"我\s*(?:(?:平时|通常|一般|每天|今天)\s*)?(?:(?<period>晚上|下午|早上|上午|凌晨)\s*)?(?<hour>[0-2]?\d)\s*(?:点|时|[:：])\s*(?<minute>[0-5]?\d)?\s*分?\s*下班",
-        RegexOptions.Compiled);
-
     private static readonly Regex CallResponseRegex = new(
         @"我说\s*(?<trigger>[^，,。！？!?；;\r\n]{1,40}?)(?:\s*[，,、；;：:]\s*|\s+)你说\s*(?<response>[^，,。！？!?；;\r\n]{1,40})",
         RegexOptions.Compiled);
 
-    private static readonly HashSet<string> UserKinds = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "preference", "relationship", "address", "style", "boundary", "shared", "promise"
-    };
-
-    private static readonly HashSet<string> GroupKinds = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "style", "topic"
-    };
+    private static readonly IReadOnlyList<PersonaFactCaptureRule> DefaultFactCaptureRules =
+    [
+        new()
+        {
+            Kind = "shared",
+            Key = "work_end_time",
+            Source = "explicit-work-time",
+            Pattern = "我\\s*(?:(?:平时|通常|一般|每天|今天)\\s*)?(?:(?<period>晚上|下午|早上|上午|凌晨)\\s*)?(?<hour>[0-2]?\\d)\\s*(?:点|时|[:：])\\s*(?<minute>[0-5]?\\d)?\\s*分?\\s*下班",
+            ValueKind = "time"
+        }
+    ];
 
     private readonly HimeDbContext _context;
     private readonly PersonaStateOptions _options;
+    private readonly StickerLabelVocabulary _stickerLabels;
+    private readonly IOptionsMonitor<ConversationFocusOptions> _focusOptions;
     private readonly ILogger<PersonaStateService> _logger;
     private readonly object _sync = new();
+    private string BotDisplayName =>
+        string.IsNullOrWhiteSpace(_focusOptions.CurrentValue.BotDisplayName)
+            ? "assistant"
+            : _focusOptions.CurrentValue.BotDisplayName.Trim();
+
+    private IReadOnlyList<PersonaFactCaptureRule> ConfiguredFactCaptureRules =>
+        _options.FactCaptureRules.Count == 0
+            ? DefaultFactCaptureRules
+            : _options.FactCaptureRules;
 
     public PersonaStateService(
         HimeDbContext context,
         IOptions<PersonaStateOptions> options,
+        StickerLabelVocabulary stickerLabels,
+        IOptionsMonitor<ConversationFocusOptions> focusOptions,
         ILogger<PersonaStateService> logger)
     {
         _context = context;
         _options = options.Value;
+        _stickerLabels = stickerLabels;
+        _focusOptions = focusOptions;
         _logger = logger;
         Facts.EnsureIndex(fact => fact.GroupId);
         Facts.EnsureIndex(fact => fact.UserId);
@@ -87,9 +100,7 @@ public sealed class PersonaStateService : IPersonaStateService
         if (!_options.Enabled)
             return;
 
-        var normalizedEmotion = ImageService.CanonicalEmotions.Contains(emotion, StringComparer.OrdinalIgnoreCase)
-            ? emotion.ToLowerInvariant()
-            : "neutral";
+        var normalizedEmotion = _stickerLabels.NormalizeBaseEmotion(emotion);
         var now = DateTime.UtcNow;
 
         lock (_sync)
@@ -106,7 +117,11 @@ public sealed class PersonaStateService : IPersonaStateService
 
             var group = GetOrCreateGroup(groupId.Value, null, now);
             group.Mood = normalizedEmotion;
-            group.MoodIntensity = normalizedEmotion == "neutral" ? 0d : 0.82d;
+            group.MoodIntensity = normalizedEmotion.Equals(
+                _stickerLabels.FallbackEmotion,
+                StringComparison.OrdinalIgnoreCase)
+                ? 0d
+                : 0.82d;
             group.MoodUpdatedAt = now;
             group.LastUpdatedAt = now;
             Groups.Upsert(group);
@@ -187,25 +202,19 @@ public sealed class PersonaStateService : IPersonaStateService
             return 0;
 
         var captured = 0;
-        var workTime = WorkEndTimeRegex.Match(text);
-        if (workTime.Success &&
-            int.TryParse(workTime.Groups["hour"].Value, out var hour) &&
-            hour is >= 0 and <= 23)
+        foreach (var rule in ConfiguredFactCaptureRules.Where(rule =>
+                     rule.Enabled &&
+                     !string.IsNullOrWhiteSpace(rule.Key) &&
+                     !string.IsNullOrWhiteSpace(rule.Pattern)))
         {
-            var minute = int.TryParse(workTime.Groups["minute"].Value, out var parsedMinute)
-                ? parsedMinute
-                : 0;
-            var period = workTime.Groups["period"].Value;
-            if ((period is "晚上" or "下午") && hour is >= 1 and < 12)
-                hour += 12;
-            else if ((period is "早上" or "上午" or "凌晨") && hour == 12)
-                hour = 0;
+            if (!TryCaptureConfiguredFact(rule, text, out var value))
+                continue;
             UpsertExplicitUserFact(
                 userId,
-                "shared",
-                "work_end_time",
-                $"{hour:00}点{minute:00}分",
-                "explicit-work-time");
+                string.IsNullOrWhiteSpace(rule.Kind) ? "shared" : rule.Kind.Trim(),
+                rule.Key.Trim(),
+                value,
+                string.IsNullOrWhiteSpace(rule.Source) ? "explicit-fact" : rule.Source.Trim());
             captured++;
         }
 
@@ -236,6 +245,79 @@ public sealed class PersonaStateService : IPersonaStateService
                 groupId);
         }
         return captured;
+    }
+
+    private bool TryCaptureConfiguredFact(
+        PersonaFactCaptureRule rule,
+        string text,
+        out string value)
+    {
+        value = string.Empty;
+        Match match;
+        try
+        {
+            match = Regex.Match(text, rule.Pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
+
+        if (!match.Success)
+            return false;
+
+        if (rule.ValueKind.Equals("time", StringComparison.OrdinalIgnoreCase))
+        {
+            var hourText = ReadGroup(match, rule.HourGroup);
+            if (!int.TryParse(hourText, out var hour) || hour is < 0 or > 23)
+                return false;
+            var minuteText = ReadGroup(match, rule.MinuteGroup);
+            var minute = int.TryParse(minuteText, out var parsedMinute)
+                ? parsedMinute
+                : 0;
+            if (minute is < 0 or > 59)
+                return false;
+            var period = ReadGroup(match, rule.PeriodGroup);
+            if (rule.AfternoonPeriods.Any(item => item.Equals(period, StringComparison.OrdinalIgnoreCase)) &&
+                hour is >= 1 and < 12)
+            {
+                hour += 12;
+            }
+            else if (rule.MorningPeriods.Any(item => item.Equals(period, StringComparison.OrdinalIgnoreCase)) &&
+                     hour == 12)
+            {
+                hour = 0;
+            }
+            value = $"{hour:00}点{minute:00}分";
+            return true;
+        }
+
+        value = ApplyFactTemplate(rule.ValueTemplate, match);
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static string ReadGroup(Match match, string groupName) =>
+        string.IsNullOrWhiteSpace(groupName) || !match.Groups.ContainsKey(groupName)
+            ? string.Empty
+            : match.Groups[groupName].Value;
+
+    private string ApplyFactTemplate(string template, Match match)
+    {
+        var value = string.IsNullOrWhiteSpace(template) ? "{value}" : template;
+        foreach (var groupName in match.Groups.Keys.Cast<string>())
+        {
+            if (string.IsNullOrWhiteSpace(groupName) || groupName == "0")
+                continue;
+            value = value.Replace(
+                "{" + groupName + "}",
+                match.Groups[groupName].Value,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        return NormalizeFactValue(value);
     }
 
     public IReadOnlyList<PersonaMemoryFact> GetConfirmedFacts(
@@ -315,7 +397,7 @@ public sealed class PersonaStateService : IPersonaStateService
 
             var mood = GetDecayedMood(group, now);
             if (mood is not null)
-                lines.Add($"Hime 在这个群的当前情绪倾向：{mood.Value.Emotion}（强度 {mood.Value.Intensity:0.00}，可被当前对话自然改变）。");
+                lines.Add($"{BotDisplayName}在这个群的当前情绪倾向：{mood.Value.Emotion}（强度 {mood.Value.Intensity:0.00}，可被当前对话自然改变）。");
 
             if (!string.IsNullOrWhiteSpace(group.RecentTopic) &&
                 group.RecentTopicUpdatedAt is { } topicAt &&
@@ -328,7 +410,7 @@ public sealed class PersonaStateService : IPersonaStateService
         if (member is not null)
         {
             var displayName = string.IsNullOrWhiteSpace(member.Nickname) ? "当前用户" : SafeForPrompt(member.Nickname, 80);
-            lines.Add($"当前用户：{displayName}；与 Hime 的有效互动次数：{member.InteractionCount}。不要因次数本身假装亲密。");
+            lines.Add($"当前用户：{displayName}；与{BotDisplayName}的有效互动次数：{member.InteractionCount}。不要因次数本身假装亲密。");
         }
 
         var facts = SelectFactsForPrompt(groupId, userId, now, focus);
@@ -414,7 +496,7 @@ public sealed class PersonaStateService : IPersonaStateService
         return selected;
     }
 
-    private static double ScoreFactRelevance(
+    private double ScoreFactRelevance(
         PersonaMemoryFact fact,
         IReadOnlyList<string> focusTerms)
     {
@@ -465,14 +547,22 @@ public sealed class PersonaStateService : IPersonaStateService
         return result.Distinct(StringComparer.OrdinalIgnoreCase).Take(32).ToList();
     }
 
-    private static IEnumerable<string> DefaultAliases(string key) =>
-        key switch
+    private IEnumerable<string> DefaultAliases(string key)
+    {
+        if (_options.FactAliases.TryGetValue(key, out var exactAliases))
+            return exactAliases.Where(value => !string.IsNullOrWhiteSpace(value));
+
+        foreach (var (pattern, aliases) in _options.FactAliases)
         {
-            "work_end_time" => ["下班", "下班时间", "几点下班", "工作时间"],
-            _ when key.StartsWith("code_", StringComparison.OrdinalIgnoreCase) =>
-                ["暗号", "约定", "口令"],
-            _ => []
-        };
+            if (!pattern.EndsWith('*') || pattern.Length <= 1)
+                continue;
+            var prefix = pattern[..^1];
+            if (key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return aliases.Where(value => !string.IsNullOrWhiteSpace(value));
+        }
+
+        return [];
+    }
 
     private void UpsertExplicitUserFact(
         long userId,
@@ -615,8 +705,9 @@ public sealed class PersonaStateService : IPersonaStateService
 
         var allowed = scope switch
         {
-            "user" => UserKinds.Contains(kind),
-            "group" => currentGroupId.HasValue && GroupKinds.Contains(kind),
+            "user" => _options.AllowedUserFactKinds.Contains(kind, StringComparer.OrdinalIgnoreCase),
+            "group" => currentGroupId.HasValue &&
+                       _options.AllowedGroupFactKinds.Contains(kind, StringComparer.OrdinalIgnoreCase),
             _ => false
         };
         if (!allowed || string.IsNullOrWhiteSpace(key) || key.Length > 32 || !key.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '_' or '-') || string.IsNullOrWhiteSpace(value))

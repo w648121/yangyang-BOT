@@ -1,7 +1,9 @@
 using System.Reflection;
 using System.Runtime.Versioning;
 using System.Text;
+using Hime.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Sora.Command.Attributes;
 using Sora.Core.Enums;
 using Sora.Entities.Events;
@@ -14,8 +16,15 @@ namespace Hime.Commands;
 public sealed class HelpCommand
 {
     private readonly ILogger<HelpCommand> _logger;
+    private readonly IOptionsMonitor<PersonaOptions> _personaOptions;
 
-    public HelpCommand(ILogger<HelpCommand> logger) => _logger = logger;
+    public HelpCommand(
+        ILogger<HelpCommand> logger,
+        IOptionsMonitor<PersonaOptions> personaOptions)
+    {
+        _logger = logger;
+        _personaOptions = personaOptions;
+    }
 
     [Command(
         Expressions = ["help", "帮助", "?"],
@@ -28,13 +37,13 @@ public sealed class HelpCommand
         MessageBody reply;
         try
         {
-            var imagePath = HelpMenuRenderer.Render(sections);
+            var imagePath = HelpMenuRenderer.Render(sections, _personaOptions.CurrentValue.DisplayName);
             reply = new MessageBody().AddImage(new Uri(imagePath).AbsoluteUri, ImageSubType.Normal);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Help menu rendering failed; using the text fallback.");
-            reply = new MessageBody(BuildHelpText(sections));
+            reply = new MessageBody(BuildHelpText(sections, _personaOptions.CurrentValue.DisplayName));
         }
 
         if (e.Message.SourceType == MessageSourceType.Group)
@@ -83,10 +92,11 @@ public sealed class HelpCommand
         return sections;
     }
 
-    internal static string BuildHelpText(IReadOnlyList<HelpSection>? sections = null)
+    internal static string BuildHelpText(IReadOnlyList<HelpSection>? sections = null, string? personaDisplayName = null)
     {
         sections ??= BuildSections();
-        var text = new StringBuilder("HIME 可用指令\n");
+        personaDisplayName = string.IsNullOrWhiteSpace(personaDisplayName) ? "HIME" : personaDisplayName.Trim();
+        var text = new StringBuilder($"{personaDisplayName} 可用指令\n");
         foreach (var section in sections)
         {
             text.AppendLine().Append('[').Append(section.Name).AppendLine("]");

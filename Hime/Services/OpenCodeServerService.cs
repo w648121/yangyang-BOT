@@ -16,21 +16,27 @@ namespace Hime.Services;
 public sealed class OpenCodeServerService : IHostedService, IDisposable
 {
     private readonly OpenCodeAgentOptions _options;
+    private readonly IOptionsMonitor<AgentToolsOptions> _agentTools;
     private readonly AiOptions _aiOptions;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<OpenCodeServerService> _logger;
     private readonly OpenCodeStickerCatalogPublisher _stickerCatalogPublisher;
     private readonly string _serverPassword;
     private Process? _ownedProcess;
+    private CancellationTokenSource? _readinessCancellation;
+    private Task? _readinessTask;
+    private volatile bool _isReady;
 
     public OpenCodeServerService(
         IOptions<OpenCodeAgentOptions> options,
+        IOptionsMonitor<AgentToolsOptions> agentTools,
         IOptions<AiOptions> aiOptions,
         IHttpClientFactory httpClientFactory,
         OpenCodeStickerCatalogPublisher stickerCatalogPublisher,
         ILogger<OpenCodeServerService> logger)
     {
         _options = options.Value;
+        _agentTools = agentTools;
         _aiOptions = aiOptions.Value;
         _httpClientFactory = httpClientFactory;
         _stickerCatalogPublisher = stickerCatalogPublisher;
@@ -38,7 +44,7 @@ public sealed class OpenCodeServerService : IHostedService, IDisposable
         _serverPassword = LoadOrCreatePassword();
     }
 
-    public bool IsReady { get; private set; }
+    public bool IsReady => _isReady;
 
     public Uri BaseUri => new(EnsureTrailingSlash(_options.BaseUrl));
 
@@ -58,10 +64,20 @@ public sealed class OpenCodeServerService : IHostedService, IDisposable
 
         _stickerCatalogPublisher.Publish();
 
-        if (await IsAvailableAsync(cancellationToken))
+        if (await IsSessionReadyAsync(cancellationToken))
         {
-            IsReady = true;
+            _isReady = true;
+            StartReadinessMonitor();
             _logger.LogInformation("Reusing the protected OpenCode agent at {BaseUrl}.", BaseUri);
+            return;
+        }
+
+        if (await IsTransportHealthyAsync(cancellationToken))
+        {
+            StartReadinessMonitor();
+            _logger.LogInformation(
+                "OpenCode transport is reachable at {BaseUrl}; Hime will use the direct AI path until session bootstrap completes.",
+                BaseUri);
             return;
         }
 
@@ -84,6 +100,9 @@ public sealed class OpenCodeServerService : IHostedService, IDisposable
         startInfo.Environment["HIME_OPENCODE_API_KEY"] = _aiOptions.ApiKey;
         startInfo.Environment["OPENCODE_SERVER_PASSWORD"] = _serverPassword;
         startInfo.Environment["HIME_STICKER_CATALOG_PATH"] = _stickerCatalogPublisher.SnapshotPath;
+        var capabilityPath = ResolvePath(_agentTools.CurrentValue.CapabilityConfigPath);
+        if (!string.IsNullOrWhiteSpace(capabilityPath) && File.Exists(capabilityPath))
+            startInfo.Environment["HIME_TOOL_CAPABILITY_PATH"] = capabilityPath;
 
         _ownedProcess = Process.Start(startInfo);
         if (_ownedProcess is null)
@@ -109,10 +128,12 @@ public sealed class OpenCodeServerService : IHostedService, IDisposable
         var deadline = DateTimeOffset.UtcNow.Add(timeout);
         while (DateTimeOffset.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
         {
-            if (await IsAvailableAsync(cancellationToken))
+            if (await IsTransportHealthyAsync(cancellationToken))
             {
-                IsReady = true;
-                _logger.LogInformation("Restricted OpenCode agent is ready at {BaseUrl}.", BaseUri);
+                StartReadinessMonitor();
+                _logger.LogInformation(
+                    "Restricted OpenCode transport is listening at {BaseUrl}; session bootstrap is warming in the background.",
+                    BaseUri);
                 return;
             }
 
@@ -125,12 +146,37 @@ public sealed class OpenCodeServerService : IHostedService, IDisposable
             await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
         }
 
-        _logger.LogWarning("OpenCode server did not become ready at {BaseUrl}.", BaseUri);
+        if (_ownedProcess is { HasExited: false })
+        {
+            StartReadinessMonitor();
+            _logger.LogWarning(
+                "OpenCode transport did not answer during startup; readiness probing will continue in the background at {BaseUrl}.",
+                BaseUri);
+            return;
+        }
+
+        _logger.LogWarning("OpenCode server did not start at {BaseUrl}.", BaseUri);
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        IsReady = false;
+        _isReady = false;
+        if (_readinessCancellation is not null)
+        {
+            await _readinessCancellation.CancelAsync();
+            if (_readinessTask is not null)
+            {
+                try
+                {
+                    await _readinessTask.WaitAsync(cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Normal host shutdown or caller timeout.
+                }
+            }
+        }
+
         if (_ownedProcess is { HasExited: false })
         {
             try
@@ -143,19 +189,83 @@ public sealed class OpenCodeServerService : IHostedService, IDisposable
                 _logger.LogDebug(ex, "Could not stop the locally owned OpenCode server cleanly.");
             }
         }
-
-        return Task.CompletedTask;
     }
 
-    public void Dispose() => _ownedProcess?.Dispose();
+    public void Dispose()
+    {
+        _readinessCancellation?.Dispose();
+        _ownedProcess?.Dispose();
+    }
 
-    private async Task<bool> IsAvailableAsync(CancellationToken cancellationToken)
+    private void StartReadinessMonitor()
+    {
+        if (_readinessTask is { IsCompleted: false })
+            return;
+
+        _readinessCancellation?.Dispose();
+        _readinessCancellation = new CancellationTokenSource();
+        _readinessTask = MonitorReadinessAsync(_readinessCancellation.Token);
+    }
+
+    private async Task MonitorReadinessAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (_ownedProcess is { HasExited: true })
+            {
+                _isReady = false;
+                _logger.LogWarning(
+                    "OpenCode exited while readiness was being monitored (ExitCode={ExitCode}).",
+                    _ownedProcess.ExitCode);
+                return;
+            }
+
+            if (await IsSessionReadyAsync(cancellationToken))
+            {
+                if (!_isReady)
+                {
+                    _isReady = true;
+                    _logger.LogInformation("Restricted OpenCode agent session API is ready at {BaseUrl}.", BaseUri);
+                }
+                await DelayProbeAsync(TimeSpan.FromSeconds(10), cancellationToken);
+                continue;
+            }
+
+            if (_isReady)
+            {
+                _isReady = false;
+                _logger.LogWarning(
+                    "OpenCode session API is temporarily unavailable; Hime switched to the direct AI path.");
+            }
+            await DelayProbeAsync(TimeSpan.FromSeconds(2), cancellationToken);
+        }
+    }
+
+    private static async Task DelayProbeAsync(TimeSpan delay, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(delay, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal monitor shutdown.
+        }
+    }
+
+    private Task<bool> IsTransportHealthyAsync(CancellationToken cancellationToken) =>
+        ProbeAsync("global/health", cancellationToken);
+
+    private Task<bool> IsSessionReadyAsync(CancellationToken cancellationToken) =>
+        ProbeAsync("session", cancellationToken);
+
+    private async Task<bool> ProbeAsync(string relativePath, CancellationToken cancellationToken)
     {
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(1));
-            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(BaseUri, "global/health"));
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(BaseUri, relativePath));
             ApplyAuthorization(request);
             using var response = await _httpClientFactory.CreateClient().SendAsync(request, timeout.Token);
             return response.IsSuccessStatusCode;

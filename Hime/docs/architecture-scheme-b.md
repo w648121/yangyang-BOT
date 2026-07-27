@@ -11,20 +11,26 @@ flowchart TD
     CQ --> MC["MessageCoordinator"]
     MC --> PL["Middleware Pipeline"]
     PL --> BL["BusinessLoggingMiddleware"]
-    BL --> IW["PendingInteractionMiddleware"]
+    BL --> PI["ParticipantIdentityMiddleware"]
+    PI --> GG["GroupResponseGateMiddleware"]
+    GG --> CF["ConversationFocusMiddleware\n话题图 + 回复所有权"]
+    CF --> IW["PendingInteractionMiddleware"]
     IW -->|"命中硬等待"| IC["Interaction Continuation"]
-    IW -->|"普通消息 / 新指令"| CB["Command Bus"]
-    CB --> LG["兼容 Router Command"]
-    LG --> PRE["归档图片 / 表情收集 / 群上下文"]
+    IW -->|"普通消息 / 新指令"| CR["MessageCommandRouter"]
+    CR -->|"功能命令"| CB["Command Bus"]
+    CR -->|"普通消息"| PRE["归档图片 / 表情收集 / 话题化群上下文"]
     PRE --> BIZ{"业务分发"}
     BIZ --> GS["GsCore Handler"]
+    BIZ --> JOB["Reminder / Job Handler"]
+    BIZ --> IMG["Setu / Gallery Handler"]
     BIZ --> MU["Music Handler"]
-    BIZ --> TI["Targeted Interaction Handler"]
+    BIZ --> EX["Explicit AI Handler"]
     BIZ --> RC["Reactive Conversation Handler"]
-    BIZ --> AI["AI Reply Handler"]
+    EX --> ST["SocialTurnCoordinator\n人格 + 关系 + 记忆 + 剧情"]
+    RC --> ST
     MC --> EB["Event Bus"]
     EB --> DIAG["业务日志与诊断事件"]
-    IC --> AI
+    IC --> ST
 ```
 
 适配器位于指令和业务逻辑之前。以后增加新平台时，新适配器只负责把原生事件转换为
@@ -41,7 +47,7 @@ flowchart TD
 ## 性能边界
 
 - Command Bus、Event Bus 和 Middleware 全部在进程内执行，不进行 HTTP 调用和 JSON 序列化。
-- 原有 `ConversationMessageDispatcher` 继续提供分区并发、同会话顺序和有界队列。
+- `ConversationMessageDispatcher` 提供同会话严格顺序、不同会话独立并发和全局有界背压；慢请求不会再阻塞散列碰撞的其他群。
 - 慢操作仍在现有服务内部异步执行；架构层本身只有 DI 查找和少量委托调用。
 - 不引入 RabbitMQ、Kafka、动态 DLL 热加载或多进程微服务。
 
@@ -51,13 +57,15 @@ flowchart TD
 
 - GsCore
 - 自然语言点歌
-- 定向成员互动
 - 自然接话
 - AI 回复与会话清理
 - 私聊等待输入续接
+- 提醒任务执行
+- 表情、图片与合并转发
 
 Sora 的 `[Command]` 指令注册仍保留为兼容入口，确保现有鸣潮、表情、语音、管理等命令行为不回退。
-后续逐个把这些命令的内部逻辑迁到 Command Handler；在最后一个命令迁移并完成回归后，再移除兼容 Router Command。
+旧定向用户服务、隐式地址探测器和 RuntimeFact 独立回复器已经删除；它们的职责分别由
+`ConversationFocusResolver`、统一模型路由和可信上下文证据承担，不再形成第二条回复链。
 
 ## 新功能接入规则
 

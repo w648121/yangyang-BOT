@@ -30,4 +30,27 @@ public sealed class ChatHistoryOptions
     public int MaxSummaryCharacters { get; set; } = 1800;
 
     public int MaxSourceMessageCharacters { get; set; } = 180;
+
+    public int MemoryIndexSchemaVersion { get; set; } = 1;
+
+    public List<string> KeyTopicMarkers { get; set; } = [];
+
+    public List<string> SensitiveOrInstructionMarkers { get; set; } = [];
+
+    public List<string> RecallMarkers { get; set; } = [];
+
+    public List<string> SearchNoiseMarkers { get; set; } = [];
+
+    public bool IsValid() =>
+        !string.IsNullOrWhiteSpace(Namespace) &&
+        RawContextDays > 0 &&
+        MaxRecentMessagesInPrompt > 0 &&
+        MaxSummaryItems > 0 &&
+        MaxSummaryCharacters > 0 &&
+        MaxSourceMessageCharacters > 0 &&
+        MemoryIndexSchemaVersion > 0 &&
+        KeyTopicMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+        SensitiveOrInstructionMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+        RecallMarkers.Any(value => !string.IsNullOrWhiteSpace(value)) &&
+        SearchNoiseMarkers.Any(value => !string.IsNullOrWhiteSpace(value));
 }

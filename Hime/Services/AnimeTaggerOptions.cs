@@ -15,6 +15,27 @@ public sealed class AnimeTaggerOptions
     public double TagConfidenceThreshold { get; set; } = 0.30;
 
     public int MaximumSemanticTags { get; set; } = 6;
+
+    public Dictionary<string, List<string>> EmotionTagMap { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, List<string>> IntentTagMap { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsValid() =>
+        !Enabled ||
+        (!string.IsNullOrWhiteSpace(ModelPath) &&
+         !string.IsNullOrWhiteSpace(TagsPath) &&
+         MinimumModelBytes >= 0 &&
+         TagConfidenceThreshold is > 0 and <= 1 &&
+         MaximumSemanticTags > 0 &&
+         EmotionTagMap.Count > 0 &&
+         EmotionTagMap.All(pair =>
+             !string.IsNullOrWhiteSpace(pair.Key) &&
+             pair.Value.Any(tag => !string.IsNullOrWhiteSpace(tag))) &&
+         IntentTagMap.All(pair =>
+             !string.IsNullOrWhiteSpace(pair.Key) &&
+             pair.Value.Any(tag => !string.IsNullOrWhiteSpace(tag))));
 }
 
 public sealed record AnimeTagResult(

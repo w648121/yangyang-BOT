@@ -9,7 +9,14 @@
   },
   "RuntimeDiagnostics": {
     "SampleWindowSize": 512,
-    "RecentEventLimit": 50
+    "RecentEventLimit": 50,
+    "DependencyPorts": [
+      3010,
+      3100,
+      8765,
+      9882,
+      42116
+    ]
   },
   "DiagnosticsDashboard": {
     "Enabled": true,
@@ -57,6 +64,10 @@
       "/任务"
     ],
     "EditMarkers": [
+      "修改成",
+      "修改为",
+      "调整成",
+      "调整为",
       "改一下",
       "修改",
       "改成",
@@ -65,10 +76,96 @@
       "变成",
       "以后每天",
       "每天都"
-    ]
+    ],
+    "EditStripMarkers": [
+      "修改成",
+      "修改为",
+      "调整成",
+      "调整为",
+      "改一下",
+      "修改",
+      "改成",
+      "调整",
+      "换成",
+      "变成"
+    ],
+    "EditLeadInMarkers": [
+      "把这个提醒",
+      "这个提醒",
+      "提醒"
+    ],
+    "InputNormalizationReplacements": {
+      "顶个闹钟": "定个闹钟",
+      "订个闹钟": "定个闹钟"
+    },
+    "AssistantAliases": [
+      "秧秧",
+      "央央",
+      "小黄瓜"
+    ],
+    "ContentRemovalMarkers": [
+      "/提醒",
+      "请",
+      "帮我",
+      "给我",
+      "定个闹钟",
+      "设置闹钟",
+      "设个闹钟",
+      "提醒我",
+      "提醒一下",
+      "提醒下",
+      "到时候",
+      "别忘记",
+      "别忘了",
+      "记得",
+      "每天",
+      "每日",
+      "今天",
+      "明天",
+      "后天",
+      "今晚",
+      "明早"
+    ],
+    "TemporalRemovalMarkers": [
+      "每天",
+      "每日",
+      "今天",
+      "明天",
+      "后天",
+      "今晚",
+      "明早"
+    ],
+    "EventNameNoiseWords": [
+      "我的",
+      "我们",
+      "我",
+      "通常",
+      "一般",
+      "平时",
+      "会在",
+      "将在",
+      "将会",
+      "要在",
+      "是",
+      "时间是",
+      "时间",
+      "的时候"
+    ],
+    "EventNameSuffixes": [
+      "的时间",
+      "时间",
+      "的时候"
+    ],
+    "TemporalFactAliases": {
+      "work_end_time": [
+        "下班"
+      ]
+    },
+    "ReminderUsageHint": "用法：/提醒 明天早上8点交报告\n也可以直接说“秧秧，20分钟后提醒我喝水”。",
+    "EventAnchorPromptExample": "我每天20:00下班"
   },
   "ProgramUpdates": {
-    "CurrentVersion": "2026.07.24.4",
+    "CurrentVersion": "2026.07.27.11",
     "ChangeLogFile": "data/program-updates.jsonl",
     "DefaultEntries": 1,
     "MaxEntries": 8

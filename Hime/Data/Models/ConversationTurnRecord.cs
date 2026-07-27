@@ -27,6 +27,10 @@ public sealed class ConversationTurnRecord
 
     public long? GroupId { get; set; }
 
+    public string TopicId { get; set; } = string.Empty;
+
+    public List<long> ConversationParticipants { get; set; } = [];
+
     public string UserText { get; set; } = string.Empty;
 
     public List<string> UserImagePaths { get; set; } = [];
@@ -40,6 +44,14 @@ public sealed class ConversationTurnRecord
     public string? Emotion { get; set; }
 
     public string Source { get; set; } = string.Empty;
+
+    public long? AssistantMessageId { get; set; }
+
+    public string SocialIntentId { get; set; } = string.Empty;
+
+    public string DialogueAct { get; set; } = string.Empty;
+
+    public string CandidateSummary { get; set; } = string.Empty;
 
     public DateTime StartedAtUtc { get; set; }
 

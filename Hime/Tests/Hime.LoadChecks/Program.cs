@@ -58,8 +58,8 @@ using (var database = new HimeDbContext(outboxDatabase))
     Assert(recovered.PendingCount == 0, "completed voice outbox entry was retained");
 }
 
-// Bounded partitioned dispatcher: preserve strict order per conversation while
-// unrelated conversations execute concurrently.
+// Bounded conversation dispatcher: preserve strict order per conversation while
+// unrelated conversations execute independently up to the configured concurrency.
 var dispatcher = new ConversationMessageDispatcher(
     Options.Create(new MessageDispatchOptions { PartitionCount = 8, CapacityPerPartition = 64 }),
     NullLogger<ConversationMessageDispatcher>.Instance,
@@ -114,6 +114,39 @@ foreach (var conversation in observed)
 }
 Assert(maximumActive >= 2, "unrelated conversations did not execute concurrently");
 Assert(dispatcher.PendingCount == 0, "dispatcher retained pending work after completion");
+
+// Conversation keys 0 and 8 collided in the former eight-partition dispatcher.
+// A slow model request in one conversation must not block the other one.
+var slowStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var slowCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var quickCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+await dispatcher.EnqueueAsync(
+    0,
+    "slow-collision-probe",
+    async cancellationToken =>
+    {
+        slowStarted.TrySetResult();
+        await releaseSlow.Task.WaitAsync(cancellationToken);
+        slowCompleted.TrySetResult();
+    });
+await slowStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+await dispatcher.EnqueueAsync(
+    8,
+    "quick-collision-probe",
+    _ =>
+    {
+        quickCompleted.TrySetResult();
+        return Task.CompletedTask;
+    });
+await quickCompleted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+Assert(!slowCompleted.Task.IsCompleted,
+    "a colliding conversation waited for unrelated slow model work");
+releaseSlow.TrySetResult();
+await slowCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+while (dispatcher.PendingCount > 0)
+    await Task.Delay(5);
+
 try
 {
     await dispatcher.StopAsync(CancellationToken.None);
@@ -144,7 +177,7 @@ var snapshot = diagnostics.Snapshot();
 var fault = snapshot.Metrics["fault.synthetic"];
 var processing = snapshot.Metrics["message.process"];
 Assert(fault.Completed == 20 && fault.Failed == 5, "fault metrics are inaccurate");
-Assert(processing.Completed == total && processing.Failed == 0, "message processing metrics are inaccurate");
+Assert(processing.Completed == total + 2 && processing.Failed == 0, "message processing metrics are inaccurate");
 
 Console.WriteLine($"Messages={total}, Conversations={conversations}, ElapsedMs={stopwatch.ElapsedMilliseconds}, MaxParallel={maximumActive}");
 Console.WriteLine($"Message P50={processing.P50Ms:F2}ms, P95={processing.P95Ms:F2}ms, Failures={processing.Failed}");

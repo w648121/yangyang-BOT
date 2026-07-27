@@ -4,10 +4,37 @@ using Microsoft.Extensions.Options;
 
 namespace Hime.Services;
 
+public sealed class PersonaCorpusRoutingOptions
+{
+    public Dictionary<string, List<string>> EmotionMarkers { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, List<string>> SceneMarkers { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public List<string> LoreMarkers { get; set; } = [];
+
+    public List<string> RelationshipStatusMarkers { get; set; } = [];
+
+    public List<string> PlotExpositionMarkers { get; set; } = [];
+
+    public List<string> RelationshipSceneMarkers { get; set; } = [];
+
+    public bool IsValid() =>
+        EmotionMarkers.Count > 0 &&
+        SceneMarkers.Count > 0 &&
+        EmotionMarkers.Values.All(HasMarkers) &&
+        SceneMarkers.Values.All(HasMarkers);
+
+    private static bool HasMarkers(IEnumerable<string> markers) =>
+        markers.Any(marker => !string.IsNullOrWhiteSpace(marker));
+}
+
 /// <summary>Loads verified character lines and retrieves a few cadence examples per request.</summary>
 public sealed class PersonaCorpusService
 {
     private readonly IOptionsMonitor<PersonaOptions> _options;
+    private readonly IOptionsMonitor<PersonaCorpusRoutingOptions> _routing;
     private readonly ILogger<PersonaCorpusService> _logger;
     private readonly object _sync = new();
     private string _loadedPath = string.Empty;
@@ -18,9 +45,11 @@ public sealed class PersonaCorpusService
 
     public PersonaCorpusService(
         IOptionsMonitor<PersonaOptions> options,
+        IOptionsMonitor<PersonaCorpusRoutingOptions> routing,
         ILogger<PersonaCorpusService> logger)
     {
         _options = options;
+        _routing = routing;
         _logger = logger;
     }
 
@@ -135,7 +164,7 @@ public sealed class PersonaCorpusService
         return score;
     }
 
-    private static bool IsCadenceCandidate(
+    private bool IsCadenceCandidate(
         PersonaCorpusEntry entry,
         string scene,
         bool loreFocus,
@@ -148,9 +177,7 @@ public sealed class PersonaCorpusService
         // The complete corpus remains available as canonical source material, but
         // plot exposition is a poor cadence example for ordinary QQ conversation.
         if (!loreFocus && (scene is "casual" or "care" or "relationship") &&
-            ContainsAny(text,
-                "频谱", "频率能量", "数据坞", "无冠者", "残象", "声骸",
-                "令尹", "岁主", "今汐", "瑝览类书", "无音区", "黑海岸"))
+            ContainsAny(text, _routing.CurrentValue.PlotExpositionMarkers))
         {
             return false;
         }
@@ -158,9 +185,7 @@ public sealed class PersonaCorpusService
         // Official letters remain valid plot evidence, but a concrete scene from a
         // letter must not become a generic reply template for "老婆/恋人" small talk.
         if (relationshipStatusFocus &&
-            ContainsAny(text,
-                "赏花", "花田", "花海", "散步", "走走", "走一走", "吹风",
-                "赶路", "跟上", "这一路", "天气", "景色", "云雀"))
+            ContainsAny(text, _routing.CurrentValue.RelationshipSceneMarkers))
         {
             return false;
         }
@@ -168,24 +193,21 @@ public sealed class PersonaCorpusService
         return true;
     }
 
-    private static string ClassifyEmotion(string text)
+    private string ClassifyEmotion(string text)
     {
-        if (ContainsAny(text, "开心", "高兴", "谢谢", "哈哈", "笑", "完成", "成功", "喜欢")) return "happy";
-        if (ContainsAny(text, "难过", "伤心", "失去", "告别", "哭")) return "sad";
-        if (ContainsAny(text, "累", "害怕", "担心", "没事", "安慰", "失败", "输了")) return "comforting";
-        if (ContainsAny(text, "危险", "错误", "报错", "警告", "认真", "检查", "原因")) return "serious";
+        foreach (var (emotion, markers) in _routing.CurrentValue.EmotionMarkers)
+        {
+            if (ContainsAny(text, markers))
+                return emotion;
+        }
         return "neutral";
     }
 
-    private static bool LooksLikeLoreFocus(string text) =>
-        ContainsAny(text,
-            "鸣潮", "今州", "夜归", "漂泊者", "炽霞", "白芷", "残象",
-            "声骸", "无音区", "黑海岸", "流息", "秧秧剧情");
+    private bool LooksLikeLoreFocus(string text) =>
+        ContainsAny(text, _routing.CurrentValue.LoreMarkers);
 
-    private static bool LooksLikeRelationshipStatusFocus(string text) =>
-        ContainsAny(text,
-            "老婆", "老公", "恋人", "对象", "女朋友", "男朋友", "伴侣",
-            "结婚", "嫁给", "娶你");
+    private bool LooksLikeRelationshipStatusFocus(string text) =>
+        ContainsAny(text, _routing.CurrentValue.RelationshipStatusMarkers);
 
     private static double CadenceSimilarity(string left, string right)
     {
@@ -243,16 +265,13 @@ public sealed class PersonaCorpusService
         }
     }
 
-    private static string ClassifyScene(string text)
+    private string ClassifyScene(string text)
     {
-        if (ContainsAny(text, "担心", "放心", "没事", "小心", "谢谢", "抱歉", "安全", "难过")) return "care";
-        if (ContainsAny(text, "危险", "敌人", "战斗", "救人", "残象", "受伤")) return "danger";
-        if (ContainsAny(text, "发现", "痕迹", "数据", "判断", "推测", "调查", "线索", "为什么", "怎么")) return "investigation";
-        if (ContainsAny(text, "小时候", "母亲", "家里", "记得", "愿望", "生日", "回忆")) return "memory";
-        if (ContainsAny(text,
-                "朋友", "我们", "一起", "喜欢", "认识", "关系",
-                "老婆", "老公", "恋人", "对象", "女朋友", "男朋友", "伴侣",
-                "结婚", "嫁给", "娶你")) return "relationship";
+        foreach (var (scene, markers) in _routing.CurrentValue.SceneMarkers)
+        {
+            if (ContainsAny(text, markers))
+                return scene;
+        }
         return "casual";
     }
 
@@ -268,8 +287,9 @@ public sealed class PersonaCorpusService
             .ToArray();
     }
 
-    private static bool ContainsAny(string text, params string[] values) =>
-        values.Any(value => text.Contains(value, StringComparison.OrdinalIgnoreCase));
+    private static bool ContainsAny(string text, IEnumerable<string> values) =>
+        values.Where(value => !string.IsNullOrWhiteSpace(value))
+            .Any(value => text.Contains(value.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private static int StableTieBreak(string id, string focus) =>
         StringComparer.Ordinal.GetHashCode(id + "|" + focus) & int.MaxValue;

@@ -6,6 +6,7 @@ using Hime.Data.Services;
 using Hime.Messaging;
 using LiteDB;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Hime.Jobs;
 
@@ -24,6 +25,7 @@ public sealed class TemporalAnchorService
     private readonly JobTimeParser _parser;
     private readonly IPersonaStateService _personaStates;
     private readonly IChatService _chat;
+    private readonly IOptionsMonitor<JobOptions> _options;
     private readonly ILogger<TemporalAnchorService> _logger;
     private readonly object _sync = new();
 
@@ -32,6 +34,7 @@ public sealed class TemporalAnchorService
         JobTimeParser parser,
         IPersonaStateService personaStates,
         IChatService chat,
+        IOptionsMonitor<JobOptions> options,
         ILogger<TemporalAnchorService> logger)
     {
         _anchors = db.Database.GetCollection<TemporalAnchorRecord>("temporal_event_anchors");
@@ -41,6 +44,7 @@ public sealed class TemporalAnchorService
         _parser = parser;
         _personaStates = personaStates;
         _chat = chat;
+        _options = options;
         _logger = logger;
     }
 
@@ -48,8 +52,7 @@ public sealed class TemporalAnchorService
     {
         var text = message.Text.Trim();
         if (string.IsNullOrWhiteSpace(text) ||
-            text.Contains("提醒", StringComparison.Ordinal) ||
-            text.Contains("闹钟", StringComparison.Ordinal))
+            IsConfiguredJobRequest(text))
         {
             return;
         }
@@ -359,7 +362,7 @@ public sealed class TemporalAnchorService
                     : null
             };
 
-    private static bool FactMatches(
+    private bool FactMatches(
         PersonaMemoryFact fact,
         string normalizedEvent)
     {
@@ -368,28 +371,31 @@ public sealed class TemporalAnchorService
             .Append(fact.Value)
             .Select(NormalizeEventName)
             .Where(value => !string.IsNullOrWhiteSpace(value));
-        if (fact.Key.Equals("work_end_time", StringComparison.OrdinalIgnoreCase))
-            aliases = aliases.Append("下班");
+        if (_options.CurrentValue.TemporalFactAliases.TryGetValue(fact.Key, out var configuredAliases))
+        {
+            aliases = aliases.Concat(
+                configuredAliases
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(NormalizeEventName));
+        }
         return aliases.Any(value =>
             value.Contains(normalizedEvent, StringComparison.Ordinal) ||
             normalizedEvent.Contains(value, StringComparison.Ordinal));
     }
 
-    private static bool TextMatchesEvent(string text, string normalizedEvent)
+    private bool TextMatchesEvent(string text, string normalizedEvent)
     {
         var normalizedText = NormalizeEventName(text);
         return normalizedText.Contains(normalizedEvent, StringComparison.Ordinal) ||
                normalizedEvent.Contains(normalizedText, StringComparison.Ordinal);
     }
 
-    private static string? TryExtractEventName(string text)
+    private string? TryExtractEventName(string text)
     {
-        var candidate = JobTimeParser.RemoveTemporalExpressions(text);
-        foreach (var noise in new[]
-                 {
-                     "我的", "我们", "我", "通常", "一般", "平时", "会在", "将在", "将会", "要在", "是",
-                     "时间是", "时间", "的时候"
-                 })
+        var candidate = _parser.RemoveTemporalExpressions(text);
+        foreach (var noise in _options.CurrentValue.EventNameNoiseWords
+                     .Where(noise => !string.IsNullOrWhiteSpace(noise))
+                     .OrderByDescending(noise => noise.Length))
         {
             candidate = candidate.Replace(noise, string.Empty, StringComparison.Ordinal);
         }
@@ -397,7 +403,18 @@ public sealed class TemporalAnchorService
         return candidate.Length is >= 1 and <= 24 ? candidate : null;
     }
 
-    public static string NormalizeEventName(string value)
+    private bool IsConfiguredJobRequest(string text)
+    {
+        var options = _options.CurrentValue;
+        return options.CommandPrefixes
+                   .Where(prefix => !string.IsNullOrWhiteSpace(prefix))
+                   .Any(prefix => text.StartsWith(prefix.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+               options.IntentMarkers
+                   .Where(marker => !string.IsNullOrWhiteSpace(marker))
+                   .Any(marker => text.Contains(marker.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string NormalizeEventName(string value)
     {
         var builder = new StringBuilder(value.Length);
         foreach (var character in value.Trim().ToLowerInvariant())
@@ -406,7 +423,9 @@ public sealed class TemporalAnchorService
                 builder.Append(character);
         }
         var normalized = builder.ToString();
-        foreach (var suffix in new[] { "的时间", "时间", "的时候" })
+        foreach (var suffix in _options.CurrentValue.EventNameSuffixes
+                     .Where(suffix => !string.IsNullOrWhiteSpace(suffix))
+                     .OrderByDescending(suffix => suffix.Length))
             normalized = normalized.Replace(suffix, string.Empty, StringComparison.Ordinal);
         return normalized;
     }

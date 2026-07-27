@@ -18,6 +18,8 @@ public sealed class MessageCommandRouter(
     GroupResponseCommand groupResponse,
     UpdateLogCommand updates,
     HelpCommand help,
+    LearningCommand learning,
+    ReplyDiagnosticsCommand diagnostics,
     JobCommand jobs,
     ILogger<MessageCommandRouter> logger)
 {
@@ -32,12 +34,6 @@ public sealed class MessageCommandRouter(
         if (text.Equals("ping", StringComparison.OrdinalIgnoreCase))
         {
             await PingCommand.Ping(message);
-            return true;
-        }
-
-        if (text.Equals("hello", StringComparison.OrdinalIgnoreCase))
-        {
-            await ExampleCommands.Hello(message);
             return true;
         }
 
@@ -59,7 +55,7 @@ public sealed class MessageCommandRouter(
                 await stickers.Execute(message);
                 break;
             case "/ai":
-                await ai.Chat(message);
+                await ai.Chat(incoming);
                 break;
             case "/voice":
                 await voice.Speak(message);
@@ -83,6 +79,14 @@ public sealed class MessageCommandRouter(
                 break;
             case "/\u505c\u6b62":
                 await groupResponse.Disable(message);
+                break;
+            case "/\u5b66\u4e60":
+            case "/learn":
+                await learning.ExecuteAsync(incoming, cancellationToken);
+                break;
+            case "/\u8bca\u65ad":
+            case "/diagnose":
+                await diagnostics.ExecuteAsync(incoming, cancellationToken);
                 break;
             case "/\u66f4\u65b0\u65e5\u5fd7":
                 await updates.UpdateLog(message);

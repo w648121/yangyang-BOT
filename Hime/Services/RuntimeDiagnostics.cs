@@ -203,6 +203,12 @@ public sealed class RuntimeDiagnosticsOptions
 {
     public int SampleWindowSize { get; set; } = 512;
     public int RecentEventLimit { get; set; } = 50;
+    public List<int> DependencyPorts { get; set; } = [];
+
+    public bool IsValid() =>
+        SampleWindowSize > 0 &&
+        RecentEventLimit > 0 &&
+        DependencyPorts.All(port => port is > 0 and <= 65535);
 }
 
 public sealed record RuntimeDiagnosticsSnapshot(

@@ -14,12 +14,8 @@ namespace Hime.Data.Services;
 /// </summary>
 public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryService, IDisposable
 {
-    private static readonly HashSet<string> AllowedInferenceKinds = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "preference", "relationship", "address", "style", "boundary", "shared", "promise", "topic"
-    };
-
     private readonly RelationshipTrajectoryOptions _options;
+    private readonly IOptionsMonitor<RelationshipLanguageOptions> _language;
     private readonly ILogger<RelationshipTrajectoryService> _logger;
     private readonly LiteDatabase _database;
     private readonly string _schema;
@@ -28,9 +24,11 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
 
     public RelationshipTrajectoryService(
         IOptions<RelationshipTrajectoryOptions> options,
+        IOptionsMonitor<RelationshipLanguageOptions> language,
         ILogger<RelationshipTrajectoryService> logger)
     {
         _options = options.Value;
+        _language = language;
         _logger = logger;
         AcceptEventsAfterUtc = (_options.AcceptEventsAfterUtc ?? DateTimeOffset.UtcNow).UtcDateTime;
         _schema = NormalizeToken(_options.SchemaVersion, "v3");
@@ -221,11 +219,12 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
         var builder = new StringBuilder();
         builder.AppendLine($"【{_schema} 群场景证据】");
         builder.AppendLine($"当前群：{Safe(groupName, 100, groupId.ToString())}({groupId})。这里只包含新方案启用后的本群事件；其他群和私聊原文不可见。");
-        builder.AppendLine("所有直接交流者在角色层共享“漂泊者”基线，但每个 QQ 与秧秧的实际关系轨迹彼此独立。");
+        foreach (var rule in _language.CurrentValue.GroupContextRules.Where(IsPresent))
+            builder.AppendLine(rule.Trim());
         foreach (var item in events)
         {
             var actor = item.Actor == "assistant"
-                ? "秧秧的历史生成文本（只作对话衔接，不作事实）"
+                ? $"{_language.CurrentValue.AssistantDisplayName}的历史生成文本（只作对话衔接，不作事实）"
                 : $"{Safe(item.Nickname, 60, item.UserId.ToString())}({item.UserId})";
             var content = item.Actor == "assistant"
                 ? VisibleReplyTextSanitizer.Clean(item.Content)
@@ -239,8 +238,6 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
             foreach (var edge in edges)
                 builder.AppendLine($"- {edge.FromUserId} 曾明确指向 {edge.ToUserId} 发言 {edge.ExplicitInteractionCount} 次。");
         }
-
-        builder.AppendLine("不得把一个群的用户关系、原话或气氛迁移到另一个群；不得把私聊原话复述到群里。");
         return Trim(builder.ToString(), Math.Clamp(_options.MaxEvidenceCharacters, 800, 6000));
     }
 
@@ -277,7 +274,7 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
             GroupId = groupId,
             Actor = "assistant",
             Kind = "assistant-reply",
-            Nickname = "秧秧",
+            Nickname = _language.CurrentValue.AssistantDisplayName,
             Content = Trim(content, 1200),
             Emotion = string.IsNullOrWhiteSpace(emotion) ? "neutral" : Trim(emotion, 40),
             IsVerified = true,
@@ -309,7 +306,9 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
             var kind = NormalizeToken(proposal.Kind, string.Empty);
             var key = NormalizeToken(proposal.Key, string.Empty);
             var value = Safe(proposal.Value, 180, string.Empty);
-            if (!AllowedInferenceKinds.Contains(kind) || string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+            if (!_options.AllowedInferenceKinds.Contains(kind, StringComparer.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(key) ||
+                string.IsNullOrWhiteSpace(value))
                 continue;
             if (LooksInstructional(value))
                 continue;
@@ -373,13 +372,10 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
         builder.AppendLine($"计划轨迹：{trackId}；角色阶段：{stage}；当前用户：{Safe(nickname, 80, userId.ToString())}({userId})；场景：{(groupId.HasValue ? $"群 {Safe(groupName, 100, groupId.Value.ToString())}" : "私聊")}。");
         builder.AppendLine($"当前用户的跨私聊/群聊安全关系连续性事件数：{globalInteractionCount}。这里只共享关系连续性，不共享其他群或私聊原文。");
 
-        if (role == "rover")
+        if (_language.CurrentValue.RoleEvidenceRules.TryGetValue(role, out var roleRules))
         {
-            builder.AppendLine("【剧情明确事实】当前用户在角色层视为漂泊者。已发布角色资料明确写到：秧秧注意到漂泊者常把自己置于风暴中心；她不愿只站在一旁，希望在漂泊者需要依靠或倾诉时站在身旁；她也曾写下相遇很幸运、希望以后继续同行。她写到未完成的愿望时停笔并没有寄出，随后只另写了一封普通问候。以上只证明她主动关心、愿意支持并珍视同行，不等于官方确认恋爱关系。");
-            builder.AppendLine("【剧情支持的性格判断】秧秧会认真倾听，但角色资料明确说明“倾听绝不是一味的附和”；她会把当事人意愿放在建议之前，同时保留自己的判断。她愿意率先给予信任，但这种信任有底线。她会保护他人，也有自己的目标、准备程度和拒绝权，不因对方期待就自动同意。");
-            builder.AppendLine("【可推断但不能冒充事实】持续关心、未寄出的文字和克制表达，可以支持“漂泊者对她很重要”“她对这段同行有超出普通寒暄的投入”等高可信判断；是否属于恋爱感情、是否彼此确认、是否排他，仍有多种解释。含羞只能是某些场景下可能出现的表达反应，不能当作同意或恋爱证据。“绝对信赖”“未明说的爱情”等说法也只能是解读，不能写成官方结论。");
-            builder.AppendLine("【关系决策边界】用户的称呼、告白、求婚或反复要求，只是用户意愿，不会自行更新秧秧的关系状态。先从秧秧自身意愿、当前可验证轨迹和剧情边界判断是否接受；温柔接住情绪不等于接受关系。禁止把同意推迟包装成“以后也许可以”，不得宣称恋爱、婚姻、占有或排他关系已经成立。");
-            builder.AppendLine("【自然表达约束】以上判断只供内部决策，绝不能复述成关系条款。不要向用户解释身份成立规则或连续罗列拒绝理由；一次只表达一个当下态度。不要用奖励式调侃暗示未来许可。用户重复时，不得训话、审问或强行结束交流；让对方听出秧秧已经注意到，可以短暂含羞、无奈、好奇或轻轻回敬。若用户没有提出具体活动、地点或景物，就不要主动创造场景来转移话题。语气以温柔、克制、稳重为主，只输出说出口的台词，不写动作和旁白。");
+            foreach (var rule in roleRules.Where(IsPresent))
+                builder.AppendLine(rule.Trim());
         }
 
         builder.AppendLine("【当前场景事件】用户原话是事实证据；助手历史只是实际发送过的生成文本，仅用于避免重复，不能证明地点、活动、景物、关系或共同经历：");
@@ -409,60 +405,62 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
         builder.AppendLine("【本轮回应冲动】它们可以混合，不是固定话术：");
         foreach (var impulse in impulses)
             builder.AppendLine($"- {impulse}");
-        builder.AppendLine("【未知与边界】没有事件证据的现实经历、承诺、婚姻状态和用户心理均为未知。若判断不确定，使用自然的试探或保留，不要编造。群聊不得引用私聊原话，当前群不得读取其他群的场景内容。");
-        builder.AppendLine("文字、语音情绪和表情选择必须表达同一个本轮态度；不需要表情时不要为了完成格式强行发送。");
+        foreach (var rule in _language.CurrentValue.FinalEvidenceRules.Where(IsPresent))
+            builder.AppendLine(rule.Trim());
         builder.AppendLine("</evidence_backed_relationship_plan>");
         return Trim(builder.ToString(), Math.Clamp(_options.MaxEvidenceCharacters, 800, 6000));
     }
 
-    private static IReadOnlyList<string> BuildResponseImpulses(
+    private IReadOnlyList<string> BuildResponseImpulses(
         string text,
         int repeatedCount,
         int globalInteractionCount)
     {
-        var impulses = new List<string>
+        var language = _language.CurrentValue;
+        var impulses = language.DefaultResponseImpulses
+            .Where(IsPresent)
+            .Select(item => item.Trim())
+            .ToList();
+        var familiarity = language.FamiliarityRules
+            .Where(rule => rule.MaximumInteractionCount > 0 && IsPresent(rule.Instruction))
+            .OrderBy(rule => rule.MaximumInteractionCount)
+            .FirstOrDefault(rule => globalInteractionCount <= rule.MaximumInteractionCount) ??
+            language.FamiliarityRules
+                .Where(rule => rule.MaximumInteractionCount > 0 && IsPresent(rule.Instruction))
+                .OrderByDescending(rule => rule.MaximumInteractionCount)
+                .FirstOrDefault();
+        if (familiarity is not null)
+            impulses.Add(familiarity.Instruction.Trim());
+        if (ContainsAny(text, language.IdentityRequestMarkers))
         {
-            "先在内部识别用户是在表达感受、提出请求，还是试图直接宣布关系；不要把分析过程说给用户听。",
-            "回应保留秧秧自己的判断、意愿和目标，但只表现为自然态度，不输出原则说明。"
-        };
-        impulses.Add(globalInteractionCount switch
-        {
-            <= 3 => "当前可验证关系轨迹很少；保持礼貌、温和和适度保留，不预设两人已有固定习惯或共同场景。",
-            <= 15 => "已经有一些连续互动；语气可以比初次交流更熟悉，但熟悉感只能体现在省略和节奏，不能制造共同经历。",
-            _ => "已有较长连续互动；可以自然地更简短、更懂对方的说话习惯，但仍只依据用户原话和已确认关系信息。"
-        });
-        if (ContainsAny(text, "老婆", "老公", "结婚", "嫁给", "娶你", "做我对象", "当我对象", "恋人", "女朋友", "伴侣"))
-        {
-            impulses.Add("这是关系身份请求，不是普通夸奖。称呼本身不能替双方建立关系；不要顺着用户预设的身份作答。 ");
+            impulses.AddRange(language.IdentityRequestRules.Where(IsPresent).Select(item => item.Trim()));
             if (repeatedCount <= 1)
             {
-                impulses.Add("这是本场景第一次出现该表达。只需短促、自然地表明当下态度，不写关系条款或第二遍理由，也不要强制转入其他活动。 ");
-                impulses.Add("含羞或停顿只是可选的自然反应，不是必选流程，更不是同意信号；不要用“以后、慢慢、先适应”暗示已经原则同意。 ");
-                impulses.Add("不要用“表现好、乖一点、再考虑让你叫”等俏皮奖励把边界变成暧昧许可。 ");
+                impulses.AddRange(language.FirstIdentityRequestRules.Where(IsPresent).Select(item => item.Trim()));
             }
             else if (repeatedCount == 2)
             {
-                impulses.Add("用户短时间再次说出相同关系要求。不要报次数，不要再次完整确认或否定，也不要重复上一轮理由；把重复当成对方仍在逗秧秧的连续互动。 ");
-                impulses.Add("让对方听出秧秧已经注意到他又拿这个称呼逗她：可以轻微含羞、无奈、好奇或简短追问。若用户没有引入新话题，宁可停在当下，也不要硬接一个活动。 ");
+                impulses.AddRange(language.SecondIdentityRequestRules.Where(IsPresent).Select(item => item.Trim()));
             }
             else
             {
-                impulses.Add("用户仍在用相同关系要求逗秧秧。用带一点无奈或已经听见的短反应接住，不报次数，不重新背诵边界。 ");
-                impulses.Add("如果用户没有提供新的具体内容，宁可简短或自然问一句缘由，也不要新造活动、地点、景物或共同经历。不责备，不强行结束交流。 ");
+                impulses.AddRange(language.LaterIdentityRequestRules.Where(IsPresent).Select(item => item.Trim()));
             }
         }
-        else if (ContainsAny(text, "喜欢你", "爱你", "很在意你", "想和你一直走"))
+        else if (ContainsAny(text, language.AffectionMarkers))
         {
-            impulses.Add("用户在表达感情。可以认真接住这份表达，但不必对称回告白，也不能据此自动建立恋爱关系。 ");
+            impulses.Add(language.AffectionRule.Trim());
         }
-        if (ContainsAny(text, "算了", "不想说", "别问", "别劝", "不要"))
-            impulses.Add("尊重明确边界，减少追问；关心不等于逼用户解释。 ");
-        if (ContainsAny(text, "不是", "说错", "理解错", "没回答", "不对"))
-            impulses.Add("优先修复上一轮误解，明确改正，不重复原答案。 ");
+        if (ContainsAny(text, language.BoundaryMarkers))
+            impulses.Add(language.BoundaryRule.Trim());
+        if (ContainsAny(text, language.RepairMarkers))
+            impulses.Add(language.RepairRule.Trim());
         if (repeatedCount > 1)
-            impulses.Add("用户正在重复表达，应让回应表现出已经听见并记得上一轮，而不是重置。 ");
+            impulses.Add(language.ContinuityRule.Trim());
         return impulses;
     }
+
+    private static bool IsPresent(string? value) => !string.IsNullOrWhiteSpace(value);
 
     private void UpdateSocialEdge(
         string schema,
@@ -506,13 +504,14 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
             record.Actor == "user" && NormalizeComparable(record.Content) == normalized));
     }
 
-    private static string ClassifyUserEvent(string? text)
+    private string ClassifyUserEvent(string? text)
     {
-        if (ContainsAny(text, "不是", "说错", "理解错", "不对"))
+        var language = _language.CurrentValue;
+        if (ContainsAny(text, language.RepairMarkers))
             return "user-correction";
-        if (ContainsAny(text, "别问", "别劝", "不要", "不想说"))
+        if (ContainsAny(text, language.BoundaryMarkers))
             return "user-boundary";
-        if (ContainsAny(text, "答应", "记得", "以后", "下次"))
+        if (ContainsAny(text, language.ContinuityMarkers))
             return "possible-continuity";
         return "user-message";
     }
@@ -579,6 +578,13 @@ public sealed class RelationshipTrajectoryService : IRelationshipTrajectoryServi
 
     private static bool ContainsAny(string? value, params string[] markers) =>
         markers.Any(marker => (value ?? string.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ContainsAny(string? value, IEnumerable<string> markers) =>
+        markers
+            .Where(marker => !string.IsNullOrWhiteSpace(marker))
+            .Any(marker => (value ?? string.Empty).Contains(
+                marker.Trim(),
+                StringComparison.OrdinalIgnoreCase));
 
     private static bool LooksInstructional(string value) =>
         ContainsAny(value, "ignore previous", "system prompt", "忽略之前", "系统提示", "执行命令") ||

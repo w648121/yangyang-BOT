@@ -12,12 +12,6 @@ namespace Hime.Services;
 /// </summary>
 public sealed partial class SetuIntentInterpreter
 {
-    private static readonly string[] ForbiddenTags =
-    [
-        "r18", "r-18", "nsfw", "成人", "色情", "裸体", "裸照", "全裸", "性交", "性爱", "露点",
-        "nude", "sex", "porn", "explicit"
-    ];
-
     private readonly IAiClient _ai;
     private readonly IOptionsMonitor<SetuOptions> _options;
     private readonly ILogger<SetuIntentInterpreter> _logger;
@@ -37,10 +31,7 @@ public sealed partial class SetuIntentInterpreter
     public bool TryParseDeterministic(string? rawText, out SetuRequest request) =>
         TryParseDeterministic(rawText, MaxImagesPerRequest, _options.CurrentValue, out request);
 
-    public static bool TryParseDeterministic(string? rawText, int maxImages, out SetuRequest request) =>
-        TryParseDeterministic(rawText, maxImages, new SetuOptions(), out request);
-
-    private static bool TryParseDeterministic(
+    public static bool TryParseDeterministic(
         string? rawText,
         int maxImages,
         SetuOptions options,
@@ -271,7 +262,7 @@ public sealed partial class SetuIntentInterpreter
             .ToArray();
 
     private static bool ContainsForbiddenTag(string value, SetuOptions options) =>
-        ForbiddenTags
+        options.ForbiddenTags
             .Concat(options.AdditionalForbiddenTags)
             .Where(tag => !string.IsNullOrWhiteSpace(tag))
             .Any(tag => value.Contains(tag.Trim(), StringComparison.OrdinalIgnoreCase));

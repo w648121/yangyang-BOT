@@ -1,17 +1,19 @@
 using Hime.Data.Services;
+using Hime.Services;
 using Microsoft.Extensions.Logging;
-using Sora.Entities.Segments;
 
 namespace Hime.Messaging;
 
 /// <summary>
-/// Stops conversational processing before any model, image or reply pipeline runs.
+/// Stops conversational output before any model, image or reply pipeline runs.
 /// Control commands remain routable so an administrator can re-enable a stopped group.
 /// </summary>
 public sealed class GroupResponseGateMiddleware(
     GroupResponseStateService states,
     IGroupActivityService groupActivities,
+    ConversationTopicGraph topicGraph,
     IRelationshipTrajectoryService relationshipTrajectory,
+    ForwardMessageIngestService forwardMessageIngest,
     ILogger<GroupResponseGateMiddleware> logger) : IMessageMiddleware
 {
     public int Order => 150;
@@ -30,20 +32,25 @@ public sealed class GroupResponseGateMiddleware(
             return;
         }
 
-        RecordSilently(message);
+        var observed = await RecordSilentlyAsync(message, cancellationToken);
+        if (observed is not null)
+            context.ReplaceMessage(observed);
+
         context.MarkHandled("group-response-disabled");
         logger.LogDebug(
             "Observed group conversation without responding because database response state is disabled (GroupId={GroupId})",
             message.GroupId.Value);
     }
 
-    private void RecordSilently(IncomingMessage message)
+    private async Task<IncomingMessage?> RecordSilentlyAsync(
+        IncomingMessage message,
+        CancellationToken cancellationToken)
     {
         if (!message.GroupId.HasValue ||
             message.SenderId <= 0 ||
             message.SenderId == message.SelfId)
         {
-            return;
+            return null;
         }
 
         var native = message.NativeEvent;
@@ -52,15 +59,22 @@ public sealed class GroupResponseGateMiddleware(
                        native.Member?.Nickname ??
                        message.SenderId.ToString();
         var groupName = native.Group?.GroupName ?? groupId.ToString();
-        var addressedUsers = native.Message.Body?
-            .OfType<MentionSegment>()
-            .Select(mention => (long)mention.Target)
+        var addressedUsers = message.MentionedUserIds
             .Where(target => target > 0 && target != message.SelfId)
             .Distinct()
-            .ToArray() ?? [];
+            .ToArray();
+        var topic = topicGraph.Resolve(
+            message,
+            groupActivities.GetRecentMessages(groupId, 24));
+        var observed = message with
+        {
+            TopicId = topic.TopicId,
+            ConversationParticipants = topic.Participants
+        };
 
-        // “停止响应”只关闭输出能力，不关闭群上下文观察。这里故意不运行
-        // 图片下载、表情随机回复、AI 或任何业务命令，确保停用状态完全静默。
+        // A disabled group should be silent, not blind. Keep lightweight
+        // observation and merged-forward evidence while skipping image downloads,
+        // stickers, AI replies, voice synthesis and business commands.
         relationshipTrajectory.RecordUserMessage(
             message.MessageId,
             message.SenderId,
@@ -76,13 +90,28 @@ public sealed class GroupResponseGateMiddleware(
             message.SenderId,
             nickname,
             message.Text,
-            imagePaths: []);
+            imagePaths: [],
+            messageId: message.MessageId,
+            accountId: message.AccountId,
+            replyToMessageId: message.ReplyToMessageId,
+            replyToUserId: message.ReplyToUserId,
+            quotedText: message.QuotedText,
+            mentionedUserIds: message.MentionedUserIds,
+            topicId: topic.TopicId,
+            conversationParticipants: topic.Participants);
+
+        await forwardMessageIngest.IngestAsync(
+            native,
+            observed,
+            groupName,
+            cancellationToken);
+        return observed;
     }
 
     public static bool IsControlCommand(string? text)
     {
         var command = text?.Trim() ?? string.Empty;
-        return command.Equals("/响应", StringComparison.OrdinalIgnoreCase) ||
-               command.Equals("/停止", StringComparison.OrdinalIgnoreCase);
+        return command.Equals("/\u54cd\u5e94", StringComparison.OrdinalIgnoreCase) ||
+               command.Equals("/\u505c\u6b62", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -10,9 +10,13 @@ public sealed class ReactiveConversationOptions
 
     public double BaseReplyProbability { get; set; } = 0.08;
 
-    public double QuestionReplyProbability { get; set; } = 0.28;
+    /// <summary>
+    /// Additional probability contributed by verified participation in the
+    /// current topic. Focus eligibility is decided before this rate gate.
+    /// </summary>
+    public double ParticipationProbabilityWeight { get; set; } = 0.32;
 
-    public double BotNameReplyProbability { get; set; } = 0.35;
+    public double MaximumReplyProbability { get; set; } = 0.45;
 
     public int MinGroupReplyIntervalSeconds { get; set; } = 150;
 

@@ -82,7 +82,10 @@ public sealed class GroupResponseCommand
 
     private static async ValueTask ReplyAsync(MessageReceivedEvent e, string text)
     {
-        var body = new MessageBody(text);
+        var body = new MessageBody();
+        if (e.Message.SourceType == MessageSourceType.Group && e.Message.MessageId > 0)
+            body.AddReply(e.Message.MessageId);
+        body.AddText(text);
         if (e.Message.SourceType == MessageSourceType.Group)
             _ = await e.Api.SendGroupMessageAsync(e.Message.GroupId, body);
         else

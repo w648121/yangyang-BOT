@@ -13,17 +13,23 @@ public sealed class GroupActivityService : IGroupActivityService
 {
     private readonly ILiteCollection<GroupActivityRecord> _groups;
     private readonly LiteDbWriteBehindService _writeBehind;
-    private readonly ProactiveAgentOptions _options;
+    private readonly IOptionsMonitor<GroupActivityOptions> _options;
+    private readonly StickerLabelVocabulary _stickerLabels;
+    private readonly IOptionsMonitor<ConversationFocusOptions> _focusOptions;
     private readonly Dictionary<long, GroupActivityRecord> _records;
     private readonly object _sync = new();
 
     public GroupActivityService(
         HimeDbContext context,
         LiteDbWriteBehindService writeBehind,
-        IOptions<ProactiveAgentOptions> options)
+        IOptionsMonitor<GroupActivityOptions> options,
+        StickerLabelVocabulary stickerLabels,
+        IOptionsMonitor<ConversationFocusOptions> focusOptions)
     {
         _writeBehind = writeBehind;
-        _options = options.Value;
+        _options = options;
+        _stickerLabels = stickerLabels;
+        _focusOptions = focusOptions;
         _groups = context.Database.GetCollection<GroupActivityRecord>("group_activity");
         _groups.EnsureIndex(record => record.LastIncomingAt);
         _records = _groups.FindAll()
@@ -40,7 +46,15 @@ public sealed class GroupActivityService : IGroupActivityService
         string content,
         IReadOnlyList<string> imagePaths,
         IReadOnlyList<string>? stickerEmotions = null,
-        IReadOnlyList<string>? stickerTags = null)
+        IReadOnlyList<string>? stickerTags = null,
+        long messageId = 0,
+        string? accountId = null,
+        long? replyToMessageId = null,
+        long? replyToUserId = null,
+        string? quotedText = null,
+        IReadOnlyList<long>? mentionedUserIds = null,
+        string? topicId = null,
+        IReadOnlyList<long>? conversationParticipants = null)
     {
         lock (_sync)
         {
@@ -51,12 +65,20 @@ public sealed class GroupActivityService : IGroupActivityService
             record.RecentMessages.Add(new GroupActivityMessage
             {
                 IsBot = false,
+                MessageId = messageId,
+                AccountId = Trim(accountId, 80),
                 UserId = userId,
                 Nickname = Trim(nickname, 80),
                 Content = Trim(content, 800),
                 ImagePaths = imagePaths.Take(8).ToList(),
                 StickerEmotions = NormalizeStickerEmotions(stickerEmotions),
                 StickerTags = NormalizeStickerTags(stickerTags),
+                ReplyToMessageId = replyToMessageId,
+                ReplyToUserId = replyToUserId,
+                QuotedText = Trim(quotedText, 800),
+                MentionedUserIds = NormalizeUserIds(mentionedUserIds, 16),
+                TopicId = Trim(topicId, 120),
+                ConversationParticipants = NormalizeUserIds(conversationParticipants, 24),
                 Time = now
             });
 
@@ -65,14 +87,29 @@ public sealed class GroupActivityService : IGroupActivityService
         }
     }
 
-    public void RecordBotReply(long groupId, string content)
+    public void RecordBotReply(
+        long groupId,
+        string content,
+        long? replyToMessageId = null,
+        long? replyToUserId = null,
+        string? topicId = null,
+        IReadOnlyList<long>? conversationParticipants = null,
+        long messageId = 0)
     {
         lock (_sync)
         {
             var record = GetOrCreate(groupId, null);
             var now = DateTime.UtcNow;
             record.LastBotReplyAt = now;
-            AppendBotMessage(record, content, now);
+            AppendBotMessage(
+                record,
+                content,
+                now,
+                replyToMessageId,
+                replyToUserId,
+                topicId,
+                conversationParticipants,
+                messageId);
             QueuePersist(record);
         }
     }
@@ -203,7 +240,8 @@ public sealed class GroupActivityService : IGroupActivityService
 
     public IReadOnlyList<GroupActivityMessage> GetRecentMessages(long groupId, int maximum)
     {
-        var limit = Math.Clamp(maximum, 1, 100);
+        var maximumRetention = Math.Clamp(_options.CurrentValue.RecentMessageRetentionLimit, 16, 500);
+        var limit = Math.Clamp(maximum, 1, maximumRetention);
         lock (_sync)
         {
             _records.TryGetValue(groupId, out var record);
@@ -237,7 +275,7 @@ public sealed class GroupActivityService : IGroupActivityService
 
     private void TrimRecentMessages(GroupActivityRecord record)
     {
-        var limit = Math.Clamp(_options.ContextMessageLimit, 4, 100);
+        var limit = Math.Clamp(_options.CurrentValue.RecentMessageRetentionLimit, 16, 500);
         if (record.RecentMessages.Count > limit)
             record.RecentMessages = record.RecentMessages.TakeLast(limit).ToList();
     }
@@ -269,7 +307,15 @@ public sealed class GroupActivityService : IGroupActivityService
         return normalized.Length <= maxLength ? normalized : normalized[..maxLength];
     }
 
-    private void AppendBotMessage(GroupActivityRecord record, string? content, DateTime time)
+    private void AppendBotMessage(
+        GroupActivityRecord record,
+        string? content,
+        DateTime time,
+        long? replyToMessageId = null,
+        long? replyToUserId = null,
+        string? topicId = null,
+        IReadOnlyList<long>? conversationParticipants = null,
+        long messageId = 0)
     {
         var normalized = Trim(content, 800);
         // Internal status markers are useful for rate control but are not conversational context.
@@ -283,9 +329,14 @@ public sealed class GroupActivityService : IGroupActivityService
         record.RecentMessages.Add(new GroupActivityMessage
         {
             IsBot = true,
+            MessageId = Math.Max(0, messageId),
             UserId = 0,
-            Nickname = "Hime",
+            Nickname = Trim(_focusOptions.CurrentValue.BotDisplayName, 80),
             Content = normalized,
+            ReplyToMessageId = replyToMessageId,
+            ReplyToUserId = replyToUserId,
+            TopicId = Trim(topicId, 120),
+            ConversationParticipants = NormalizeUserIds(conversationParticipants, 24),
             Time = time
         });
         TrimRecentMessages(record);
@@ -294,19 +345,36 @@ public sealed class GroupActivityService : IGroupActivityService
     private static GroupActivityMessage CloneMessage(GroupActivityMessage source) => new()
     {
         IsBot = source.IsBot,
+        MessageId = source.MessageId,
+        AccountId = source.AccountId,
         UserId = source.UserId,
         Nickname = source.Nickname,
         Content = source.Content,
         ImagePaths = (source.ImagePaths ?? []).ToList(),
         StickerEmotions = (source.StickerEmotions ?? []).ToList(),
         StickerTags = (source.StickerTags ?? []).ToList(),
+        ReplyToMessageId = source.ReplyToMessageId,
+        ReplyToUserId = source.ReplyToUserId,
+        QuotedText = source.QuotedText,
+        MentionedUserIds = (source.MentionedUserIds ?? []).ToList(),
+        TopicId = source.TopicId,
+        ConversationParticipants = (source.ConversationParticipants ?? []).ToList(),
         Time = source.Time
     };
 
-    private static List<string> NormalizeStickerEmotions(IReadOnlyList<string>? emotions) =>
+    private static List<long> NormalizeUserIds(IReadOnlyList<long>? userIds, int maximum) =>
+        (userIds ?? [])
+            .Where(userId => userId > 0)
+            .Distinct()
+            .Take(Math.Max(1, maximum))
+            .ToList();
+
+    private List<string> NormalizeStickerEmotions(IReadOnlyList<string>? emotions) =>
         (emotions ?? [])
-            .Where(emotion => ImageService.CanonicalEmotions.Contains(emotion, StringComparer.OrdinalIgnoreCase))
-            .Select(emotion => emotion.ToLowerInvariant())
+            .Select(emotion => _stickerLabels.TryNormalizeBaseEmotion(emotion, out var normalized)
+                ? normalized
+                : string.Empty)
+            .Where(emotion => !string.IsNullOrWhiteSpace(emotion))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(3)
             .ToList();
@@ -319,4 +387,16 @@ public sealed class GroupActivityService : IGroupActivityService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(6)
             .ToList();
+}
+
+/// <summary>
+/// Storage window for observed group messages. This is intentionally separated
+/// from proactive/reply prompt limits so imported merged-forward evidence is not
+/// discarded before investigation commands can read it.
+/// </summary>
+public sealed class GroupActivityOptions
+{
+    public int RecentMessageRetentionLimit { get; set; } = 160;
+
+    public bool IsValid() => RecentMessageRetentionLimit is >= 16 and <= 500;
 }

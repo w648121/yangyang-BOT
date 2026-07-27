@@ -7,15 +7,6 @@ namespace Hime.Services;
 /// <summary>Calls the SFW Lolicon search endpoint and the two requested random-image providers.</summary>
 public sealed class SetuApiService
 {
-    private static readonly IReadOnlyDictionary<string, string> TagAliases =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["鸣潮"] = "鸣潮|Wuthering Waves",
-            ["白丝"] = "白丝|白タイツ|白裤袜",
-            ["黑丝"] = "黑丝|黒タイツ|黑裤袜",
-            ["兽耳"] = "兽耳|ケモミミ"
-        };
-
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly SetuOptions _options;
     private readonly ILogger<SetuApiService> _logger;
@@ -97,7 +88,7 @@ public sealed class SetuApiService
             : new SetuFetchResult([], "random-error", "随机图片服务暂时没有返回可用内容，请稍后再试。");
     }
 
-    public static Uri BuildLoliconUri(
+    public Uri BuildLoliconUri(
         string baseUrl,
         int count,
         IReadOnlyList<string> tags,
@@ -120,7 +111,9 @@ public sealed class SetuApiService
             else
             {
                 parameters.AddRange(tags.Select(tag =>
-                    new KeyValuePair<string, string>("tag", TagAliases.TryGetValue(tag, out var alias) ? alias : tag)));
+                    new KeyValuePair<string, string>(
+                        "tag",
+                        _options.TagAliases.TryGetValue(tag, out var alias) ? alias : tag)));
             }
         }
 

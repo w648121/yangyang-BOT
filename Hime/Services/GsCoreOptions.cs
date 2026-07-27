@@ -8,11 +8,9 @@ public sealed class GsCoreOptions
 
     public bool AutoStartLocalServer { get; set; } = true;
 
-    public string CoreExecutablePath { get; set; } =
-        @"D:\PycharmProjects\Hime\GsCore\.venv\Scripts\core.exe";
+    public string CoreExecutablePath { get; set; } = string.Empty;
 
-    public string WorkingDirectory { get; set; } =
-        @"D:\PycharmProjects\Hime\GsCore";
+    public string WorkingDirectory { get; set; } = string.Empty;
 
     public int StartupTimeoutSeconds { get; set; } = 120;
 
@@ -25,4 +23,17 @@ public sealed class GsCoreOptions
     public string OutputDirectory { get; set; } = "data/gscore-output";
 
     public int MaxMediaMegabytes { get; set; } = 32;
+
+    public bool IsValid() =>
+        !Enabled ||
+        (!string.IsNullOrWhiteSpace(BaseUrl) &&
+         StartupTimeoutSeconds > 0 &&
+         RequestTimeoutSeconds > 0 &&
+         !string.IsNullOrWhiteSpace(BotId) &&
+         CommandPrefixes.Any(prefix => !string.IsNullOrWhiteSpace(prefix)) &&
+         !string.IsNullOrWhiteSpace(OutputDirectory) &&
+         MaxMediaMegabytes > 0 &&
+         (!AutoStartLocalServer ||
+          (!string.IsNullOrWhiteSpace(CoreExecutablePath) &&
+           !string.IsNullOrWhiteSpace(WorkingDirectory))));
 }

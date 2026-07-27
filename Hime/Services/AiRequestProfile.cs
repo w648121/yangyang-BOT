@@ -4,7 +4,10 @@ namespace Hime.Services;
 /// A bounded, application-selected model override. It is never built from user
 /// input, so a QQ message cannot select a provider or a more expensive model.
 /// </summary>
-public sealed record AiRequestProfile(string? ProviderId = null, string? ModelId = null)
+public sealed record AiRequestProfile(
+    string? ProviderId = null,
+    string? ModelId = null,
+    bool PreferDirect = false)
 {
     public static AiRequestProfile Default { get; } = new();
 

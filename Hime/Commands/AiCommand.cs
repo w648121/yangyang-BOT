@@ -58,18 +58,6 @@ public class AiCommand
         @"\[memory:\s*(user|group)\s*:\s*(preference|relationship|address|style|boundary|shared|promise|topic)\s*:\s*([a-zA-Z0-9_-]{1,32})\s*=\s*([^\]\r\n]{1,240})\]",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly Regex StickerIntentRegex = new(
-        @"(?:\u8868\u60c5|\u60c5\u7eea\u6807\u7b7e|\bemoji(?:s)?\b|\bsticker(?:s)?\b)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex StickerBatchRequestRegex = new(
-        @"(?:(?<number>[1-3])|(?<chinese>[\u4e00\u4e8c\u4e24\u4fe9\u4e09\u58f9\u8d30\u53c1\u4ec0]))\s*(?:\u4e2a|\u5f20|\u53ea|\u5957|\u679a|\u6761|\u6b21|\u53d1|\u8f6e|\u8fde)?\s*(?:\u8868\u60c5\u5305?|\u60c5\u7eea\u6807\u7b7e|emoji(?:s)?|sticker(?:s)?)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex StickerShortCountRegex = new(
-        @"(?:\u6765|\u53d1|\u6574|\u8981|\u7ed9(?:\u6211)?)(?:(?<number>[1-3])|(?<chinese>[\u4e00\u4e8c\u4e24\u4fe9\u4e09\u58f9\u8d30\u53c1\u4ec0]))(?:\u4e2a|\u5f20|\u53ea|\u5957|\u679a|\u6761|\u6b21|\u53d1|\u8f6e|\u8fde)?",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
     private readonly IChatService _chat;
     private readonly IAiClient _ai;
     private readonly ImageService _imageService;
@@ -77,11 +65,14 @@ public class AiCommand
     private readonly IncomingImageStore _incomingImageStore;
     private readonly RecentVisualContextStore _recentVisualContexts;
     private readonly StickerEmotionAnalyzer _stickerEmotionAnalyzer;
+    private readonly StickerLabelVocabulary _stickerLabels;
+    private readonly StickerRequestParser _stickerRequests;
     private readonly OllamaVisionService _ollamaVision;
     private readonly AutoVoiceDeliveryService _autoVoiceDelivery;
     private readonly SocialTurnCoordinator _socialTurns;
+    private readonly ReplyCandidateJudgeService _candidateJudge;
     private readonly PersonaComplianceService _personaCompliance;
-    private readonly RuntimeFactResponder _runtimeFacts;
+    private readonly EmotionalReplyRefinementService _emotionalReplyRefinement;
     private readonly RuntimeDiagnostics _diagnostics;
     private readonly GroupResponseStateService _groupResponses;
     private readonly ISoraMessageAdapter _messageAdapter;
@@ -96,11 +87,14 @@ public class AiCommand
         IncomingImageStore incomingImageStore,
         RecentVisualContextStore recentVisualContexts,
         StickerEmotionAnalyzer stickerEmotionAnalyzer,
+        StickerLabelVocabulary stickerLabels,
+        StickerRequestParser stickerRequests,
         OllamaVisionService ollamaVision,
         AutoVoiceDeliveryService autoVoiceDelivery,
         SocialTurnCoordinator socialTurns,
+        ReplyCandidateJudgeService candidateJudge,
         PersonaComplianceService personaCompliance,
-        RuntimeFactResponder runtimeFacts,
+        EmotionalReplyRefinementService emotionalReplyRefinement,
         RuntimeDiagnostics diagnostics,
         GroupResponseStateService groupResponses,
         ISoraMessageAdapter messageAdapter,
@@ -114,11 +108,14 @@ public class AiCommand
         _incomingImageStore = incomingImageStore;
         _recentVisualContexts = recentVisualContexts;
         _stickerEmotionAnalyzer = stickerEmotionAnalyzer;
+        _stickerLabels = stickerLabels;
+        _stickerRequests = stickerRequests;
         _ollamaVision = ollamaVision;
         _autoVoiceDelivery = autoVoiceDelivery;
         _socialTurns = socialTurns;
+        _candidateJudge = candidateJudge;
         _personaCompliance = personaCompliance;
-        _runtimeFacts = runtimeFacts;
+        _emotionalReplyRefinement = emotionalReplyRefinement;
         _diagnostics = diagnostics;
         _groupResponses = groupResponses;
         _messageAdapter = messageAdapter;
@@ -130,8 +127,12 @@ public class AiCommand
         Expressions = ["ai"],
         MatchType = Sora.Core.Enums.MatchType.Keyword,
         Description = "与 AI 对话（私聊/群聊）：/ai 你的问题")]
-    public async ValueTask Chat(MessageReceivedEvent e)
+    public ValueTask Chat(MessageReceivedEvent e) =>
+        Chat(_messageAdapter.Adapt(e));
+
+    public async ValueTask Chat(IncomingMessage incoming)
     {
+        var e = incoming.NativeEvent;
         var rawText = e.Message.Body?.GetText() ?? string.Empty;
         var trimmed = rawText.Trim();
 
@@ -168,7 +169,7 @@ public class AiCommand
             return;
         }
 
-        await DoChat(e, prompt);
+        await DoChat(incoming, prompt);
     }
 
     public async Task ClearConversationAsync(MessageReceivedEvent e)
@@ -220,7 +221,7 @@ public class AiCommand
         var attachedStickerEvidence = GetAttachedStickerEvidence(e.Message.Body, userImagePaths, prompt);
         var attachedStickerEmotions = attachedStickerEvidence
             .Select(evidence => evidence.Emotion)
-            .Where(emotion => ImageService.CanonicalEmotions.Contains(emotion, StringComparer.OrdinalIgnoreCase))
+            .Where(emotion => _imageService.CanonicalEmotions.Contains(emotion, StringComparer.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(3)
             .ToList();
@@ -282,8 +283,9 @@ public class AiCommand
                 : prompt + "\n" + imageNotice;
         }
 
-        var requestedStickerCount = GetRequestedStickerCount(prompt);
-        var requestedStickerEmotion = GetRequestedStickerEmotion(prompt);
+        var requestedStickerCount = _stickerRequests.GetRequestedCount(prompt);
+        var requestedStickerEmotions = _stickerRequests.GetRequestedEmotions(prompt);
+        var requestedStickerEmotion = requestedStickerEmotions.FirstOrDefault();
         var socialPlan = _socialTurns.Build(new SocialTurnRequest(
             turn,
             e.Message.MessageId,
@@ -292,27 +294,10 @@ public class AiCommand
             promptForAi,
             groupId.HasValue ? HimeStyleScene.GroupReply : HimeStyleScene.PrivateReply,
             requestedStickerCount,
-            requestedStickerEmotion));
+            requestedStickerEmotion,
+            RequestedStickerEmotions: requestedStickerEmotions));
         var interactionPlan = socialPlan.Interaction;
         var route = socialPlan.Route;
-        if (_runtimeFacts.TryRespond(prompt, route, userId, groupId.HasValue, out var verifiedReply))
-        {
-            if (responseLease.HasValue && !_groupResponses.CanDeliver(responseLease.Value))
-            {
-                _logger.LogInformation(
-                    "Discarded runtime fact reply because the group response generation changed (GroupId={GroupId}, Epoch={Epoch})",
-                    responseLease.Value.GroupId,
-                    responseLease.Value.GenerationEpoch);
-                return;
-            }
-            await Reply(e, verifiedReply);
-            _turnRecorder.RecordDelivered(
-                turn with { Trigger = TurnTrigger.RuntimeFact },
-                DeliveredTurn.TextOnly(verifiedReply, "neutral", "runtime-fact"));
-            QueueAutomaticVoice(e, verifiedReply, emotion: "neutral", responseLease: responseLease);
-            return;
-        }
-
         var context = socialPlan.Messages;
 
         try
@@ -325,8 +310,22 @@ public class AiCommand
             if (string.IsNullOrWhiteSpace(reply))
                 reply = "（AI 没有返回内容）";
 
+            ReplyCandidateChoice? candidateChoice = null;
             if (requestedStickerCount == 0)
             {
+                var scene = groupId.HasValue ? HimeStyleScene.GroupReply : HimeStyleScene.PrivateReply;
+                candidateChoice = await _diagnostics.TrackAsync(
+                    "reply.candidate_judge",
+                    () => _candidateJudge.SelectBestAsync(
+                        reply,
+                        socialPlan,
+                        promptForAi,
+                        userId,
+                        scene,
+                        casual: route.Mode == ConversationMode.Casual,
+                        requireEmotionMarker: false,
+                        ReplyCandidateJudgeUsage.ExplicitAi));
+                reply = candidateChoice.Reply;
                 reply = await _diagnostics.TrackAsync(
                     "persona.refine",
                     () => _personaCompliance.RefineIfNeededAsync(
@@ -338,11 +337,29 @@ public class AiCommand
                         requireEmotionMarker: false,
                         recentAssistantReplies: socialPlan.RecentAssistantReplies,
                         repeatedCurrentMessageCount: interactionPlan.RepeatedCurrentMessageCount));
+                reply = await _diagnostics.TrackAsync(
+                    "emotion.refine",
+                    () => _emotionalReplyRefinement.RefineIfNeededAsync(
+                        reply,
+                        prompt,
+                        groupId.HasValue ? "普通群聊回复" : "私聊回复",
+                        userId,
+                        socialPlan.EmotionalPragmatics));
             }
+            if (string.IsNullOrWhiteSpace(reply))
+                reply = "……刚才那句话被我说乱了。你再问我一次，好吗？";
 
             var replyMedia = ParseReplyMedia(reply, route.AllowDecorativeMedia);
             if (requestedStickerCount > 0 && route.AllowDecorativeMedia)
-                replyMedia = EnsureRequestedStickerCount(replyMedia, requestedStickerCount, requestedStickerEmotion);
+                replyMedia = EnsureRequestedStickerCount(
+                    replyMedia,
+                    requestedStickerCount,
+                    requestedStickerEmotion,
+                    requestedStickerEmotions);
+            else if (route.AllowDecorativeMedia)
+                replyMedia = ApplyEmotionalMediaPolicy(
+                    replyMedia,
+                    socialPlan.EmotionalPragmatics);
 
             if (responseLease.HasValue && !_groupResponses.CanDeliver(responseLease.Value))
             {
@@ -356,14 +373,20 @@ public class AiCommand
 
             // 文字与图片先立即送达；中文语音由后台队列完成后独立补发。
             // 模型明确给出 [voice:xxx] 时仍尊重该声线，否则使用配置的默认秧秧中文声线。
-            await SendReply(e, replyMedia, null);
+            var platformMessageId = await SendReply(e, replyMedia, null);
             _turnRecorder.RecordDelivered(
                 turn,
                 new DeliveredTurn(
                     replyMedia.CleanText,
                     replyMedia.ImagePaths,
                     replyMedia.Emotion,
-                    "ai-reply"));
+                    "ai-reply")
+                {
+                    PlatformMessageId = platformMessageId,
+                    SocialIntentId = socialPlan.SocialIntent.IntentId,
+                    DialogueAct = socialPlan.Decision.Act.ToString(),
+                    CandidateSummary = BuildCandidateSummary(candidateChoice)
+                });
             _socialTurns.ApplyMemoryProposals(
                 e.Message.MessageId,
                 userId,
@@ -431,25 +454,54 @@ public class AiCommand
             responseLease?.GenerationEpoch);
     }
 
+    private static string BuildCandidateSummary(ReplyCandidateChoice? choice)
+    {
+        if (choice is null)
+            return "未启用候选裁判";
+
+        var best = choice.Candidates
+            .OrderByDescending(candidate => candidate.Score)
+            .FirstOrDefault();
+        var primary = choice.Candidates.FirstOrDefault(candidate =>
+            candidate.Source.Equals("primary", StringComparison.OrdinalIgnoreCase));
+        var status = choice.Replaced ? "已替换首版" : "保留首版";
+        var primaryScore = primary is null ? "?" : primary.Score.ToString("0.0");
+        var bestScore = best is null ? "?" : best.Score.ToString("0.0");
+        var reason = best?.Reasons.FirstOrDefault();
+        return string.IsNullOrWhiteSpace(reason)
+            ? $"{status}，候选 {choice.Candidates.Count}，首版 {primaryScore}，最佳 {bestScore}"
+            : $"{status}，候选 {choice.Candidates.Count}，首版 {primaryScore}，最佳 {bestScore}，原因：{TrimForSummary(reason, 42)}";
+    }
+
+    private static string TrimForSummary(string? value, int maximum)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        return normalized.Length <= maximum ? normalized : normalized[..maximum] + "…";
+    }
+
     /// <summary>
     /// 发送 AI 回复（纯文本或图文混合）。
     /// 自动解析 reply 中的 [img:文件名] 标记并插入本地图片。
     /// </summary>
-    private async Task SendReply(MessageReceivedEvent e, ReplyMedia reply, string? voicePath)
+    private async Task<long?> SendReply(MessageReceivedEvent e, ReplyMedia reply, string? voicePath)
     {
-        async Task SendBodyAsync(MessageBody body)
+        long? firstMessageId = null;
+
+        async Task<long?> SendBodyAsync(MessageBody body)
         {
+            object? result;
             if (e.Message.SourceType == MessageSourceType.Group)
-                await e.Api.SendGroupMessageAsync(e.Message.GroupId, body);
+                result = await e.Api.SendGroupMessageAsync(e.Message.GroupId, body);
             else
-                await e.Api.SendFriendMessageAsync(e.Message.SenderId, body);
+                result = await e.Api.SendFriendMessageAsync(e.Message.SenderId, body);
+            return PlatformSendResultInspector.TryGetMessageId(result);
         }
 
         // Keep the text independent from local stickers. If QQ rejects one GIF,
         // the actual answer remains visible and other stickers can still be sent.
         if (!string.IsNullOrWhiteSpace(reply.CleanText))
         {
-            await _diagnostics.TrackAsync(
+            firstMessageId = await _diagnostics.TrackAsync(
                 "reply.send.content",
                 () => SendBodyAsync(new MessageBody(reply.CleanText)));
             _diagnostics.Increment("replies.text.sent");
@@ -467,7 +519,7 @@ public class AiCommand
                 var sticker = new MessageBody().AddImage(
                     new Uri(file.FullName).AbsoluteUri,
                     ImageSubType.Sticker);
-                await _diagnostics.TrackAsync("reply.send.image", () => SendBodyAsync(sticker));
+                firstMessageId ??= await _diagnostics.TrackAsync("reply.send.image", () => SendBodyAsync(sticker));
                 _diagnostics.Increment("replies.image.sent");
             }
             catch (Exception ex)
@@ -480,7 +532,7 @@ public class AiCommand
             reply.ImagePaths.Count == 0 &&
             string.IsNullOrWhiteSpace(voicePath))
         {
-            await _diagnostics.TrackAsync(
+            firstMessageId = await _diagnostics.TrackAsync(
                 "reply.send.content",
                 () => SendBodyAsync(new MessageBody("……")));
         }
@@ -498,6 +550,8 @@ public class AiCommand
             });
             _diagnostics.Increment("replies.audio.sent");
         }
+
+        return firstMessageId;
     }
 
     /// <summary>
@@ -550,7 +604,10 @@ public class AiCommand
             {
                 var neutral = _imageService.SearchStickers(new StickerSearchRequest
                 {
-                    Emotions = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["neutral"] = 1.0 },
+                    Emotions = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [_stickerLabels.FallbackEmotion] = 1.0
+                    },
                     IntentTags = ["calm"],
                     Count = 1
                 }).FirstOrDefault()?.Path;
@@ -643,20 +700,65 @@ public class AiCommand
 
     // ======================== 通用辅助方法 ========================
 
-    private ReplyMedia EnsureRequestedStickerCount(ReplyMedia reply, int requestedCount, string? requestedEmotion)
+    private ReplyMedia EnsureRequestedStickerCount(
+        ReplyMedia reply,
+        int requestedCount,
+        string? requestedEmotion,
+        IReadOnlyList<string>? requestedEmotions = null)
     {
         var maximum = Math.Clamp(_imageOptions.MaxEmotionImagesPerReply, 1, 3);
         var target = Math.Clamp(requestedCount, 1, maximum);
+        var compoundEmotions = (requestedEmotions ?? [])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(_imageService.NormalizeEmotion)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToList();
+
+        if (compoundEmotions.Count > 1)
+        {
+            var candidates = _imageService.SearchStickers(new StickerSearchRequest
+            {
+                Emotions = compoundEmotions.ToDictionary(
+                    value => value,
+                    _ => 1.0,
+                    StringComparer.OrdinalIgnoreCase),
+                Count = target
+            });
+            var selected = candidates
+                .Select(candidate => candidate.Path)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(target)
+                .ToList();
+            if (selected.Count == 0)
+            {
+                var neutral = _imageService.ResolveEmotion(_stickerLabels.FallbackEmotion);
+                if (neutral is not null)
+                    selected.Add(neutral);
+            }
+
+            // Explicit compound semantics outrank a single-emotion marker chosen by
+            // the model. SearchStickers already falls back to calm/neutral when the
+            // combined match is weak, so a misleading strong single emotion is not sent.
+            return reply with
+            {
+                ImagePaths = selected,
+                Emotion = compoundEmotions[0]
+            };
+        }
+
         if (reply.ImagePaths.Count >= target)
             return reply with { ImagePaths = reply.ImagePaths.Take(target).ToList() };
 
-        var emotion = requestedEmotion ?? reply.Emotion ?? "neutral";
+        var emotion = requestedEmotion ?? reply.Emotion ?? _stickerLabels.FallbackEmotion;
         // Keep any semantic [sticker:tag] selections already made by the model.
         // The explicit request controls the fallback used only to fill missing slots.
         var imagePaths = reply.ImagePaths.ToList();
         while (imagePaths.Count < target)
         {
-            var image = _imageService.ResolveEmotion(emotion) ?? _imageService.ResolveEmotion("neutral");
+            var image = _imageService.ResolveEmotion(emotion) ??
+                        _imageService.ResolveEmotion(_stickerLabels.FallbackEmotion);
             if (image is null)
                 break;
             imagePaths.Add(image);
@@ -665,58 +767,52 @@ public class AiCommand
         return reply with { ImagePaths = imagePaths, Emotion = emotion };
     }
 
-    private static int GetRequestedStickerCount(string prompt)
+    /// <summary>
+    /// Keeps automatic media aligned with a high-confidence emotional bid. An
+    /// explicit sticker request still wins; this policy only corrects decorative
+    /// media selected by the model for an ordinary reply.
+    /// </summary>
+    private ReplyMedia ApplyEmotionalMediaPolicy(
+        ReplyMedia reply,
+        EmotionalPragmaticsPlan plan)
     {
-        if (string.IsNullOrWhiteSpace(prompt) || !StickerIntentRegex.IsMatch(prompt))
-            return 0;
+        if (!plan.IsActive)
+            return reply;
 
-        var match = StickerBatchRequestRegex.Match(prompt);
-        if (!match.Success)
-            match = StickerShortCountRegex.Match(prompt);
-
-        if (!match.Success)
-            return 0;
-
-        if (match.Groups["number"].Success && int.TryParse(match.Groups["number"].Value, out var numeric))
-            return Math.Clamp(numeric, 1, 3);
-
-        return match.Groups["chinese"].Value switch
+        var emotion = string.IsNullOrWhiteSpace(plan.PreferredEmotion)
+            ? reply.Emotion
+            : _imageService.NormalizeEmotion(plan.PreferredEmotion);
+        var imagePaths = reply.ImagePaths.ToList();
+        if (plan.RestrictMediaIntensity && imagePaths.Count > 0)
         {
-            "\u4e00" or "\u58f9" => 1,
-            "\u4e8c" or "\u4e24" or "\u4fe9" or "\u8d30" => 2,
-            "\u4e09" or "\u53c1" or "\u4ec0" => 3,
-            _ => 0
+            var allowed = plan.AllowedMediaEmotions
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(_imageService.NormalizeEmotion)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(4)
+                .ToList();
+            var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < allowed.Count; index++)
+                weights[allowed[index]] = index == 0 ? 1.0 : Math.Max(0.25, 0.65 - index * 0.15);
+            if (weights.Count == 0)
+                weights[_stickerLabels.FallbackEmotion] = 1.0;
+
+            var replacement = _imageService.SearchStickers(new StickerSearchRequest
+            {
+                Emotions = weights,
+                IntentTags = plan.MediaIntentTags.ToList(),
+                Count = 1
+            }).FirstOrDefault()?.Path;
+            imagePaths = string.IsNullOrWhiteSpace(replacement)
+                ? []
+                : [replacement];
+        }
+
+        return reply with
+        {
+            ImagePaths = imagePaths,
+            Emotion = emotion
         };
-    }
-
-    private static string? GetRequestedStickerEmotion(string prompt)
-    {
-        if (string.IsNullOrWhiteSpace(prompt) || !StickerIntentRegex.IsMatch(prompt))
-            return null;
-
-        // Check negative/sad wording before \"happy\" so \"not happy\" is not misread.
-        if (Regex.IsMatch(prompt, @"(?:\u4e0d\u5f00\u5fc3|\u5fe7\u4f24|\u5fe7\u90c1|\u96be\u8fc7|\u4f24\u5fc3|\u60b2\u4f24|\u60b2\u4f24|\bsad\b)"))
-            return "sad";
-        if (Regex.IsMatch(prompt, @"(?:\u751f\u6c14|\u610f\u6012|\u610f\u6012|\u706b\u5927|\bangry\b)"))
-            return "angry";
-        if (Regex.IsMatch(prompt, @"(?:\u60ca\u8bb6|\u9707\u60ca|\u5403\u60ca|\bsurprised\b)"))
-            return "surprised";
-        if (Regex.IsMatch(prompt, @"(?:\u5bb3\u7f9e|\u7f9e\u6da9|\bshy\b)"))
-            return "shy";
-        if (Regex.IsMatch(prompt, @"(?:\u5c34\u5c2c|\u96be\u4e3a\u60c5|\bembarrassed\b)"))
-            return "embarrassed";
-        if (Regex.IsMatch(prompt, @"(?:\u5f00\u5fc3|\u5feb\u4e50|\u9ad8\u5174|\u559c\u60a6|\u6b22\u4e50|\bhappy\b)"))
-            return "happy";
-        if (Regex.IsMatch(prompt, @"(?:\u9a84\u50b2|\u5f97\u610f|\bproud\b)"))
-            return "proud";
-        if (Regex.IsMatch(prompt, @"(?:\u8ba4\u771f|\u4e25\u8083|\bserious\b)"))
-            return "serious";
-        if (Regex.IsMatch(prompt, @"(?:\u5b89\u6170|\u6cbb\u6108|\u62b1\u62b1|\bcomforting\b)"))
-            return "comforting";
-        if (Regex.IsMatch(prompt, @"(?:\u5e73\u9759|\u65e0\u8bed|\bneutral\b)"))
-            return "neutral";
-
-        return null;
     }
 
     private static string ExtractPrompt(string raw)

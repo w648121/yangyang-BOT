@@ -34,5 +34,4 @@ public sealed class ProactiveAgentOptions
     public double StickerWeight { get; set; } = 0.10;
     public double VoiceWeight { get; set; } = 0.15;
     public double ArticleWeight { get; set; } = 0.20;
-    public string Voice { get; set; } = "nina";
 }

@@ -2,7 +2,6 @@ using Hime.Commands;
 using Hime.Data.Services;
 using Hime.Jobs;
 using Hime.Messaging;
-using Hime.Messaging.Interactions;
 using Hime.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,12 +26,10 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
     private readonly RecentVisualContextStore _recentVisualContexts;
     private readonly GroupStickerCollector _stickerCollector;
     private readonly IGroupActivityService _groupActivities;
+    private readonly GroupSceneAwarenessService _groupSceneAwareness;
+    private readonly ForwardMessageIngestService _forwardMessageIngest;
     private readonly IRelationshipTrajectoryService _relationshipTrajectory;
-    private readonly TargetedInteractionService _targetedInteractions;
-    private readonly ReactiveConversationService _reactiveConversations;
-    private readonly PrivateConversationOptions _privateConversations;
-    private readonly ImplicitAddressDetector _implicitAddressDetector;
-    private readonly MusicCommand _musicCommand;
+    private readonly ExplicitAiRequestService _explicitAiRequests;
     private readonly SetuIntentInterpreter _setuIntentInterpreter;
     private readonly JobRequestService _jobRequests;
     private readonly TemporalAnchorService _temporalAnchors;
@@ -43,12 +40,8 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
     private readonly ISoraMessageAdapter _soraMessageAdapter;
     private readonly MessageCoordinator _messageCoordinator;
     private readonly ICommandBus _commandBus;
-    private readonly IInteractionManager _interactions;
     private readonly BotAccountsOptions _botAccounts;
     private readonly MessageCommandRouter _messageCommands;
-    private readonly object _privateBatchSync = new();
-    private readonly Dictionary<PrivateConversationKey, PendingPrivateConversation> _pendingPrivateConversations = [];
-    private readonly CancellationTokenSource _privateBatchStop = new();
     private readonly List<ConnectedBotAccount> _connectedAccounts = [];
 
     public HimeBotService(
@@ -57,12 +50,10 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
         RecentVisualContextStore recentVisualContexts,
         GroupStickerCollector stickerCollector,
         IGroupActivityService groupActivities,
+        GroupSceneAwarenessService groupSceneAwareness,
+        ForwardMessageIngestService forwardMessageIngest,
         IRelationshipTrajectoryService relationshipTrajectory,
-        TargetedInteractionService targetedInteractions,
-        ReactiveConversationService reactiveConversations,
-        IOptions<PrivateConversationOptions> privateConversations,
-        ImplicitAddressDetector implicitAddressDetector,
-        MusicCommand musicCommand,
+        ExplicitAiRequestService explicitAiRequests,
         SetuIntentInterpreter setuIntentInterpreter,
         JobRequestService jobRequests,
         TemporalAnchorService temporalAnchors,
@@ -73,7 +64,6 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
         ISoraMessageAdapter soraMessageAdapter,
         MessageCoordinator messageCoordinator,
         ICommandBus commandBus,
-        IInteractionManager interactions,
         IOptions<BotAccountsOptions> botAccounts,
         MessageCommandRouter messageCommands)
     {
@@ -82,12 +72,10 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
         _recentVisualContexts = recentVisualContexts;
         _stickerCollector = stickerCollector;
         _groupActivities = groupActivities;
+        _groupSceneAwareness = groupSceneAwareness;
+        _forwardMessageIngest = forwardMessageIngest;
         _relationshipTrajectory = relationshipTrajectory;
-        _targetedInteractions = targetedInteractions;
-        _reactiveConversations = reactiveConversations;
-        _privateConversations = privateConversations.Value;
-        _implicitAddressDetector = implicitAddressDetector;
-        _musicCommand = musicCommand;
+        _explicitAiRequests = explicitAiRequests;
         _setuIntentInterpreter = setuIntentInterpreter;
         _jobRequests = jobRequests;
         _temporalAnchors = temporalAnchors;
@@ -98,7 +86,6 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
         _soraMessageAdapter = soraMessageAdapter;
         _messageCoordinator = messageCoordinator;
         _commandBus = commandBus;
-        _interactions = interactions;
         _botAccounts = botAccounts.Value;
         _messageCommands = messageCommands;
     }
@@ -107,7 +94,6 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _privateBatchStop.Cancel();
         foreach (var account in _connectedAccounts.AsEnumerable().Reverse())
         {
             try
@@ -343,10 +329,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
                 {
                     await _messageCoordinator.DispatchAsync(
                         message,
-                        (context, token) => _commandBus.SendAsync(
-                            new DispatchLegacyMessageCommand(
-                                innerToken => ProcessAcceptedMessageAsync(e, context.Message, innerToken)),
-                            token),
+                        (context, token) => ProcessAcceptedMessageAsync(e, context, token),
                         cancellationToken);
                     _diagnostics.Increment("messages.completed");
                 }
@@ -360,18 +343,25 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
 
     private async Task ProcessAcceptedMessageAsync(
         MessageReceivedEvent e,
-        IncomingMessage incoming,
+        Hime.Messaging.MessageContext context,
         CancellationToken cancellationToken)
     {
+        var incoming = context.Message;
         if (await _messageCommands.TryRouteAsync(incoming, incoming.Text, cancellationToken))
             return;
 
-        await ProcessMessageAsync(e, incoming, cancellationToken);
+        var focus = context.Items.TryGetValue(
+                        ConversationFocusContextKeys.Decision,
+                        out var storedFocus)
+                    ? storedFocus as ConversationFocusDecision
+                    : null;
+        await ProcessMessageAsync(e, incoming, focus, cancellationToken);
     }
 
     private async Task ProcessMessageAsync(
         MessageReceivedEvent e,
         IncomingMessage incoming,
+        ConversationFocusDecision? focus,
         CancellationToken cancellationToken)
     {
         var messageBody = e.Message.Body;
@@ -413,16 +403,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
         var isPotentialSetuRequest = deterministicSetuRequest is not null ||
                                     _setuIntentInterpreter.IsPotentialSemanticRequest(rawMessageText);
 
-        var isTargetedInteractionUser = _targetedInteractions.IsConfiguredTarget(e);
-        var isImplicitlyAddressed = deterministicSetuRequest is null &&
-                                    !isPotentialJobRequest &&
-                                    await _implicitAddressDetector.IsAddressedToBotAsync(
-                                        e,
-                                        rawMessageText,
-                                        isAtBot,
-                                        hasAnyMention,
-                                        cancellationToken);
-        var isBotDirected = isAtBot || isImplicitlyAddressed;
+        var isBotDirected = focus?.IsDirectedToBot == true || isAtBot;
 
         // A QQ quote/reply card does not carry the original ImageSegment in the
         // later @bot question. Archive a regular image when it arrives, then
@@ -463,10 +444,7 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
         {
             try
             {
-                // A configured target is handled by TargetedInteractionService instead, so
-                // a random sticker cannot consume the event or create a duplicate response.
-                var allowRandomStickerReply = !isTargetedInteractionUser &&
-                                              !isBotDirected &&
+                var allowRandomStickerReply = !isBotDirected &&
                                               !isPotentialSetuRequest &&
                                               !isPotentialJobRequest &&
                                               !rawMessageText.TrimStart().StartsWith('/');
@@ -509,6 +487,11 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
             var groupName = e.Group?.GroupName ?? e.Message.GroupId.ToString();
             var senderId = e.Sender?.UserId ?? e.Message.SenderId;
             var senderName = e.Sender?.Nickname ?? e.Member?.Nickname ?? senderId.ToString();
+            await _forwardMessageIngest.IngestAsync(
+                e,
+                incoming,
+                groupName,
+                cancellationToken);
             _groupActivities.RecordIncoming(
                 e.Message.GroupId,
                 groupName,
@@ -517,7 +500,16 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
                 rawMessageText,
                 stickerResult.ArchivedPaths,
                 stickerResult.EmotionHints.Select(hint => hint.Emotion).ToList(),
-                stickerResult.EmotionHints.SelectMany(hint => hint.SemanticTags).ToList());
+                stickerResult.EmotionHints.SelectMany(hint => hint.SemanticTags).ToList(),
+                messageId: incoming.MessageId,
+                accountId: incoming.AccountId,
+                replyToMessageId: incoming.ReplyToMessageId,
+                replyToUserId: incoming.ReplyToUserId,
+                quotedText: incoming.QuotedText,
+                mentionedUserIds: incoming.MentionedUserIds,
+                topicId: incoming.TopicId,
+                conversationParticipants: incoming.ConversationParticipants);
+            _groupSceneAwareness.ObserveIncoming(incoming, groupName, senderName);
             if (stickerResult.RandomReplySent)
                 _groupActivities.RecordBotReply(e.Message.GroupId, "[随机表情回复]");
         }
@@ -543,10 +535,8 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
             _logger.LogWarning(ex, "打印聊天日志失败");
         }
 
-        // 群专用的轻度接话/吐槽。它只会在显式允许的群和 QQ 号上运行，
-        // 并避开命令、@ 机器人消息及已经发送随机表情的消息。
-        // Reminder requests are consumed before image, music, targeted-chat and
-        // reactive-chat handlers. One incoming event produces one acknowledgement.
+        // Reminder requests are consumed before image, music and reactive-chat
+        // handlers. One incoming event produces one acknowledgement.
         if (isPotentialJobRequest &&
             await _jobRequests.TryHandleNaturalAsync(incoming, cancellationToken))
         {
@@ -591,331 +581,23 @@ public class HimeBotService : BackgroundService, IGroupMessageSender, IAccountMe
             return;
         }
 
-        // Keep the explicit AI trigger identical in private and group conversations.
-        // It is handled before targeted/reactive chat so one event can only produce
-        // one AI reply. /ai remains available through Sora's command router.
-        if (e.Message.SourceType == MessageSourceType.Group &&
-            TryExtractPrivateAiPrompt(
-                rawMessageText,
-                _privateConversations.TriggerPrefix,
-                out var groupAiPrompt))
-        {
-            if (IsPrivateResetPrompt(groupAiPrompt))
-            {
-                await _commandBus.SendAsync(
-                    new ClearAiConversationCommand(e),
-                    cancellationToken);
-            }
-            else if (!string.IsNullOrWhiteSpace(groupAiPrompt) || containsVisual)
-            {
-                await _commandBus.SendAsync(
-                    new GenerateAiReplyCommand(incoming, groupAiPrompt),
-                    cancellationToken);
-            }
-            else
-            {
-                await AiCommand.Reply(e, "请在 ~ai 后写下想聊的内容～");
-            }
-
+        // One explicit-AI owner handles ~ai, private burst merging and directed
+        // mentions before probabilistic group responders can consume the event.
+        if (await _explicitAiRequests.TryHandleAsync(incoming, isBotDirected, cancellationToken))
             return;
-        }
 
         if (e.Message.SourceType == MessageSourceType.Group)
         {
             await _commandBus.SendAsync(
-                new TryTargetedInteractionCommand(
-                    e,
-                    rawMessageText,
-                    containsVisual,
-                    isBotDirected,
-                    stickerResult.RandomReplySent),
-                cancellationToken);
-
-            await _commandBus.SendAsync(
                 new TryReactiveConversationCommand(
                     incoming,
                     rawMessageText,
-                    isBotDirected,
-                    stickerResult.RandomReplySent,
-                    isTargetedInteractionUser),
+                    focus,
+                    stickerResult.RandomReplySent),
                 cancellationToken);
         }
 
-        // ── 2. 私聊仅通过显式 ~ai 指令进入 AI 对话 ──
-        try
-        {
-            if (e.Message.SourceType != MessageSourceType.Group)
-            {
-                var senderId = e.Sender?.UserId ?? e.Message.SenderId;
-                var isSelfMessage = senderId == e.SelfId;
-                if (_privateConversations.Enabled &&
-                    !isSelfMessage &&
-                    _privateConversations.Allows(senderId) &&
-                    TryExtractPrivateAiPrompt(
-                        rawMessageText,
-                        _privateConversations.TriggerPrefix,
-                        out var privatePrompt))
-                {
-                    if (IsPrivateResetPrompt(privatePrompt))
-                    {
-                        await _commandBus.SendAsync(
-                            new ClearAiConversationCommand(e),
-                            cancellationToken);
-                    }
-                    else if (!string.IsNullOrWhiteSpace(privatePrompt) || containsVisual)
-                    {
-                        QueuePrivateConversation(incoming.AccountId, e, senderId, privatePrompt, containsVisual);
-                    }
-                    else
-                    {
-                        var now = DateTimeOffset.UtcNow;
-                        await _interactions.RegisterAsync(
-                            new PendingInteraction(
-                                Guid.NewGuid().ToString("N"),
-                                incoming.ScopeKey,
-                                InteractionKinds.PrivateAiPrompt,
-                                InteractionMode.HardWait,
-                                senderId,
-                                now,
-                                now.AddMinutes(2)),
-                            cancellationToken);
-                        await AiCommand.Reply(
-                            e,
-                            "请继续发送你的问题或图片，我会把下一条消息作为本次输入。2 分钟内有效；发送“取消”可退出等待。");
-                    }
-                }
-
-                return;
-            }
-
-            // ── 3. 群聊 @机器人 → AI 对话（仅当不含 /ai 前缀时，避免与命令系统重复响应） ──
-            if (e.Message.SourceType == MessageSourceType.Group)
-            {
-                var rawText = rawMessageText;
-                var trimmed = rawText.Trim();
-
-                // 如果消息以 /ai 开头，交给 AiCommand 的命令系统处理，此处跳过
-                if (trimmed.StartsWith("/", StringComparison.Ordinal))
-                    return;
-
-                // 检查是否 @了机器人（MessageBody 实现了 IEnumerable<BaseSegment>）
-                if (isBotDirected)
-                {
-                    // GetText() 已剥离 @提及 元素，剩下纯文本内容
-                    var prompt = rawText;
-                    var hasImage = messageBody?.OfType<ImageSegment>().Any() == true;
-                    if (string.IsNullOrWhiteSpace(prompt) && !hasImage)
-                    {
-                        await AiCommand.Reply(e, "请告诉我你想问什么～");
-                        return;
-                    }
-
-                    await _commandBus.SendAsync(
-                        new GenerateAiReplyCommand(incoming, prompt),
-                        cancellationToken);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "处理 @提及 消息失败");
-        }
     }
-
-    /// <summary>
-    /// Coalesces a burst of ordinary private messages so a user who sends text
-    /// followed by several stickers receives one contextual reply instead of a
-    /// separate model call for every incoming event.
-    /// </summary>
-    private void QueuePrivateConversation(
-        string accountId,
-        MessageReceivedEvent message,
-        long userId,
-        string rawText,
-        bool containsVisual)
-    {
-        var conversationKey = new PrivateConversationKey(accountId, userId);
-        PendingPrivateConversation queue;
-        var startWorker = false;
-        var maximum = Math.Clamp(_privateConversations.MaxMergedMessages, 1, 20);
-        lock (_privateBatchSync)
-        {
-            if (!_pendingPrivateConversations.TryGetValue(conversationKey, out queue!))
-            {
-                queue = new PendingPrivateConversation();
-                _pendingPrivateConversations[conversationKey] = queue;
-            }
-
-            queue.Messages.Add(new PendingPrivateMessage(message, rawText, containsVisual));
-            if (queue.Messages.Count > maximum)
-                queue.Messages.RemoveRange(0, queue.Messages.Count - maximum);
-            queue.LastReceivedUtc = DateTime.UtcNow;
-
-            if (!queue.IsProcessing)
-            {
-                queue.IsProcessing = true;
-                startWorker = true;
-            }
-        }
-
-        _logger.LogInformation(
-            "Queued ordinary private message for merged reply (UserId={UserId}, HasVisual={HasVisual})",
-            userId,
-            containsVisual);
-        if (startWorker)
-            _ = ProcessPrivateConversationAsync(conversationKey, queue, _privateBatchStop.Token);
-    }
-
-    private async Task ProcessPrivateConversationAsync(
-        PrivateConversationKey conversationKey,
-        PendingPrivateConversation queue,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                while (true)
-                {
-                    TimeSpan remaining;
-                    lock (_privateBatchSync)
-                    {
-                        var window = TimeSpan.FromSeconds(Math.Clamp(_privateConversations.MergeWindowSeconds, 0, 15));
-                        remaining = queue.LastReceivedUtc + window - DateTime.UtcNow;
-                    }
-
-                    if (remaining <= TimeSpan.Zero)
-                        break;
-                    await Task.Delay(remaining, cancellationToken);
-                }
-
-                List<PendingPrivateMessage> batch;
-                lock (_privateBatchSync)
-                {
-                    // A message can arrive between the final delay and this lock.
-                    // In that case begin the quiet-period check again.
-                    var window = TimeSpan.FromSeconds(Math.Clamp(_privateConversations.MergeWindowSeconds, 0, 15));
-                    if (DateTime.UtcNow - queue.LastReceivedUtc < window)
-                        continue;
-
-                    batch = queue.Messages.ToList();
-                    queue.Messages.Clear();
-                }
-
-                if (batch.Count == 0)
-                    continue;
-
-                var latest = batch[^1];
-                var prompt = BuildMergedPrivatePrompt(batch);
-                try
-                {
-                    _logger.LogInformation(
-                        "Routing merged private conversation to AI (UserId={UserId}, Messages={MessageCount}, Visuals={VisualCount})",
-                        conversationKey.UserId,
-                        batch.Count,
-                        batch.Count(item => item.ContainsVisual));
-                    await _commandBus.SendAsync(
-                        new GenerateAiReplyCommand(
-                            _soraMessageAdapter.Adapt(latest.Event, conversationKey.AccountId),
-                            prompt),
-                        cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Merged private conversation reply failed (UserId={UserId})", conversationKey.UserId);
-                }
-
-                lock (_privateBatchSync)
-                {
-                    if (queue.Messages.Count == 0)
-                    {
-                        _pendingPrivateConversations.Remove(conversationKey);
-                        queue.IsProcessing = false;
-                        return;
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Normal shutdown: pending unsent batches are intentionally discarded.
-        }
-        finally
-        {
-            lock (_privateBatchSync)
-            {
-                if (_pendingPrivateConversations.TryGetValue(conversationKey, out var current) && ReferenceEquals(current, queue))
-                {
-                    _pendingPrivateConversations.Remove(conversationKey);
-                    queue.IsProcessing = false;
-                }
-            }
-        }
-    }
-
-    private static string BuildMergedPrivatePrompt(IReadOnlyList<PendingPrivateMessage> batch)
-    {
-        var textParts = batch
-            .Select(item => item.Text.Trim())
-            .Where(text => !string.IsNullOrWhiteSpace(text))
-            .Take(8)
-            .ToArray();
-        var visualCount = batch.Count(item => item.ContainsVisual);
-
-        if (textParts.Length == 0)
-        {
-            return visualCount > 1
-                ? $"[The user sent {visualCount} images or stickers in quick succession without text. Give one brief, friendly reaction. Do not claim to know visual details unless trusted local context describes them.]"
-                : "[The user sent an image or sticker without text. Give one brief, friendly reaction. Do not claim to know visual details unless trusted local context describes them.]";
-        }
-
-        var prefix = batch.Count > 1
-            ? "[The following private messages were sent in quick succession. Reply once to their combined conversational meaning; do not answer each line separately.]\n"
-            : string.Empty;
-        var visualHint = visualCount > 0
-            ? $"\n[The burst also contains {visualCount} image or sticker message(s).]"
-            : string.Empty;
-        return prefix + string.Join('\n', textParts) + visualHint;
-    }
-
-    private static bool TryExtractPrivateAiPrompt(
-        string? rawText,
-        string? configuredPrefix,
-        out string prompt)
-    {
-        prompt = string.Empty;
-        var text = rawText?.Trim() ?? string.Empty;
-        var prefix = NormalizePrivateTrigger(configuredPrefix);
-        if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            return false;
-        if (text.Length > prefix.Length && !char.IsWhiteSpace(text[prefix.Length]))
-            return false;
-
-        prompt = text[prefix.Length..].TrimStart();
-        return true;
-    }
-
-    private static string NormalizePrivateTrigger(string? configuredPrefix) =>
-        string.IsNullOrWhiteSpace(configuredPrefix) ? "~ai" : configuredPrefix.Trim();
-
-    private static bool IsPrivateResetPrompt(string prompt) =>
-        prompt.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
-        prompt.Equals("reset", StringComparison.OrdinalIgnoreCase) ||
-        prompt.Equals("重置", StringComparison.Ordinal);
-
-    private sealed class PendingPrivateConversation
-    {
-        public List<PendingPrivateMessage> Messages { get; } = [];
-        public DateTime LastReceivedUtc { get; set; }
-        public bool IsProcessing { get; set; }
-    }
-
-    private sealed record PendingPrivateMessage(
-        MessageReceivedEvent Event,
-        string Text,
-        bool ContainsVisual);
-
-    private readonly record struct PrivateConversationKey(string AccountId, long UserId);
 
     private sealed record ConnectedBotAccount(
         BotAccountConnectionOptions Options,

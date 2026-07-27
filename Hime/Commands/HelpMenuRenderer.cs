@@ -20,12 +20,15 @@ internal static class HelpMenuRenderer
     private const int EntryHeight = 50;
     private static readonly object RenderSync = new();
 
-    public static string Render(IReadOnlyList<HelpSection> sections)
+    public static string Render(IReadOnlyList<HelpSection> sections, string personaDisplayName)
     {
         ArgumentNullException.ThrowIfNull(sections);
+        personaDisplayName = string.IsNullOrWhiteSpace(personaDisplayName)
+            ? "Hime"
+            : personaDisplayName.Trim();
         var cacheDirectory = Path.Combine(AppContext.BaseDirectory, "runtime", "help");
         Directory.CreateDirectory(cacheDirectory);
-        var signature = string.Join('\n', sections.SelectMany(section =>
+        var signature = personaDisplayName + '\n' + string.Join('\n', sections.SelectMany(section =>
             section.Entries.Select(entry => $"{section.Name}|{entry.Command}|{entry.Description}")));
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(signature)))[..10].ToLowerInvariant();
         var outputPath = Path.Combine(cacheDirectory, $"help-menu-{hash}.png");
@@ -35,12 +38,12 @@ internal static class HelpMenuRenderer
             if (File.Exists(outputPath) && new FileInfo(outputPath).Length > 1024)
                 return outputPath;
 
-            RenderCore(sections, outputPath);
+            RenderCore(sections, personaDisplayName, outputPath);
             return outputPath;
         }
     }
 
-    private static void RenderCore(IReadOnlyList<HelpSection> sections, string outputPath)
+    private static void RenderCore(IReadOnlyList<HelpSection> sections, string personaDisplayName, string outputPath)
     {
         var columns = PackColumns(sections);
         var contentHeight = Math.Max(columns.LeftHeight, columns.RightHeight);
@@ -59,7 +62,7 @@ internal static class HelpMenuRenderer
             graphics.FillRectangle(background, 0, 0, bitmap.Width, bitmap.Height);
         }
         DrawGrid(graphics, bitmap.Size);
-        DrawHeader(graphics, sections.Sum(section => section.Entries.Count));
+        DrawHeader(graphics, personaDisplayName, sections.Sum(section => section.Entries.Count));
 
         var columnWidth = (CanvasWidth - OuterPadding * 2 - ColumnGap) / 2;
         DrawColumn(graphics, columns.Left, OuterPadding, HeaderHeight, columnWidth);
@@ -97,7 +100,7 @@ internal static class HelpMenuRenderer
 
     private static int CardHeight(HelpSection section) => 66 + section.Entries.Count * EntryHeight + CardPadding;
 
-    private static void DrawHeader(Graphics graphics, int commandCount)
+    private static void DrawHeader(Graphics graphics, string personaDisplayName, int commandCount)
     {
         using var cyan = new SolidBrush(Color.FromArgb(81, 247, 255));
         using var pink = new SolidBrush(Color.FromArgb(255, 74, 192));
@@ -109,7 +112,7 @@ internal static class HelpMenuRenderer
 
         graphics.FillRectangle(pink, OuterPadding, 40, 8, 82);
         graphics.DrawString("HIME // COMMAND MATRIX", title, white, OuterPadding + 28, 35);
-        graphics.DrawString("秧秧智能终端 · 自适应指令索引", subtitle, dim, OuterPadding + 30, 92);
+        graphics.DrawString($"{personaDisplayName}智能终端 · 自适应指令索引", subtitle, dim, OuterPadding + 30, 92);
         graphics.DrawString($"ONLINE  ·  {commandCount:00} COMMANDS", counter, cyan, CanvasWidth - OuterPadding - 300, 55);
         using var line = new Pen(Color.FromArgb(95, 81, 247, 255), 2);
         graphics.DrawLine(line, OuterPadding, 140, CanvasWidth - OuterPadding, 140);

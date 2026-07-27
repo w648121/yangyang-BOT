@@ -12,6 +12,7 @@ public sealed class IntelligenceSelfTestService
     private readonly ConversationRouter _router;
     private readonly ChatHistoryOptions _history;
     private readonly OpenCodeAgentOptions _openCode;
+    private readonly AgentToolsOptions _agentTools;
     private readonly StickerVisionOptions _vision;
     private readonly LocalImageInspector _imageInspector;
     private readonly PersonaPlotKnowledgeService _plotKnowledge;
@@ -21,6 +22,7 @@ public sealed class IntelligenceSelfTestService
         ConversationRouter router,
         IOptions<ChatHistoryOptions> history,
         IOptions<OpenCodeAgentOptions> openCode,
+        IOptions<AgentToolsOptions> agentTools,
         IOptions<StickerVisionOptions> vision,
         LocalImageInspector imageInspector,
         PersonaPlotKnowledgeService plotKnowledge,
@@ -29,6 +31,7 @@ public sealed class IntelligenceSelfTestService
         _router = router;
         _history = history.Value;
         _openCode = openCode.Value;
+        _agentTools = agentTools.Value;
         _vision = vision.Value;
         _imageInspector = imageInspector;
         _plotKnowledge = plotKnowledge;
@@ -106,7 +109,7 @@ public sealed class IntelligenceSelfTestService
         return $"Intelligence self-test: {passed}/{checks.Count} passed\n" + string.Join('\n', lines);
     }
 
-    private static (bool Passed, string Detail) CheckToolPolicy()
+    private (bool Passed, string Detail) CheckToolPolicy()
     {
         try
         {
@@ -115,7 +118,7 @@ public sealed class IntelligenceSelfTestService
             if (!document.RootElement.TryGetProperty("permission", out var policy))
                 return (false, "missing permission policy");
 
-            var keys = new[] { "read", "edit", "bash", "webfetch", "websearch", "skill", "question" };
+            var keys = new[] { "read", "edit", "bash", "webfetch", "skill", "question" };
             var denied = keys.All(key =>
                 policy.TryGetProperty(key, out var value) &&
                 string.Equals(value.GetString(), "deny", StringComparison.OrdinalIgnoreCase));
@@ -123,9 +126,18 @@ public sealed class IntelligenceSelfTestService
                                  string.Equals(wildcard.GetString(), "deny", StringComparison.OrdinalIgnoreCase);
             var stickerAllowed = policy.TryGetProperty("hime_sticker_search", out var sticker) &&
                                  string.Equals(sticker.GetString(), "allow", StringComparison.OrdinalIgnoreCase);
-            var safe = denied && wildcardDenied && stickerAllowed;
+            var webSearchAllowed = policy.TryGetProperty("websearch", out var webSearch) &&
+                                   string.Equals(webSearch.GetString(), "allow", StringComparison.OrdinalIgnoreCase);
+            var configuredTools = _agentTools.EnabledDefinitions()
+                .Select(item => item.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var configuredAllowed = configuredTools.All(name =>
+                policy.TryGetProperty(name, out var value) &&
+                string.Equals(value.GetString(), "allow", StringComparison.OrdinalIgnoreCase));
+            var expectedBuiltIns = stickerAllowed && webSearchAllowed;
+            var safe = denied && wildcardDenied && configuredAllowed && expectedBuiltIns;
             return (safe, safe
-                ? "all sensitive tools denied; only hime_sticker_search allowed"
+                ? $"dangerous tools denied; configured tools allowed: {string.Join(',', configuredTools)}"
                 : "tool permission boundary is incomplete");
         }
         catch (Exception ex)

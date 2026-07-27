@@ -8,7 +8,6 @@ namespace Hime.Messaging;
 public enum TurnTrigger
 {
     ExplicitAi,
-    RuntimeFact,
     Reactive,
     Proactive
 }
@@ -35,6 +34,10 @@ public sealed record TurnContext(
 {
     public bool IsProactive => Trigger == TurnTrigger.Proactive;
 
+    public string TopicId { get; init; } = string.Empty;
+
+    public IReadOnlyList<long> ConversationParticipants { get; init; } = Array.Empty<long>();
+
     public static TurnContext FromIncoming(
         IncomingMessage message,
         string userText,
@@ -54,7 +57,11 @@ public sealed record TurnContext(
             userText ?? string.Empty,
             userImagePaths ?? Array.Empty<string>(),
             trigger,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow)
+        {
+            TopicId = message.TopicId,
+            ConversationParticipants = message.ConversationParticipants
+        };
 
     public static TurnContext ForProactive(long groupId, string? groupName = null) =>
         new(
@@ -84,6 +91,14 @@ public sealed record DeliveredTurn(
     string Source,
     bool RecordGroupActivity = true)
 {
+    public long? PlatformMessageId { get; init; }
+
+    public string SocialIntentId { get; init; } = string.Empty;
+
+    public string DialogueAct { get; init; } = string.Empty;
+
+    public string CandidateSummary { get; init; } = string.Empty;
+
     public static DeliveredTurn TextOnly(string text, string? emotion, string source) =>
         new(text, Array.Empty<string>(), emotion, source);
 }

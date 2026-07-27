@@ -19,7 +19,7 @@ public sealed class VoiceSynthesisOptions
 
     public VoiceOutboxOptions Outbox { get; set; } = new();
 
-    public string DefaultVoice { get; set; } = "nina";
+    public string DefaultVoice { get; set; } = string.Empty;
 
     /// <summary>
     /// 为正常 AI 回复、群内自然接话和主动发言自动追加语音。
@@ -28,7 +28,18 @@ public sealed class VoiceSynthesisOptions
     public bool AutoReplyVoiceEnabled { get; set; }
 
     /// <summary>自动回复使用的声线；当前默认使用中文秧秧声线。</summary>
-    public string AutoReplyVoice { get; set; } = "yangyang";
+    public string AutoReplyVoice { get; set; } = string.Empty;
+
+    /// <summary>Voice used by /voice compare-emotion. Empty means DefaultVoice.</summary>
+    public string EmotionComparisonVoice { get; set; } = string.Empty;
+
+    /// <summary>Stable public voice names mapped to configured profiles.</summary>
+    public Dictionary<string, string> VoiceAliases { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Emotion-label aliases used when a profile has no exact reference clip.</summary>
+    public Dictionary<string, string> EmotionAliases { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>双语文本优先朗读其中的简体中文行，避免中文音色误读日文。</summary>
     public bool AutoReplySpeakChineseOnly { get; set; } = true;
@@ -54,33 +65,27 @@ public sealed class VoiceSynthesisOptions
     public IndexTtsOptions IndexTts { get; set; } = new();
 
     public Dictionary<string, RvcVoiceProfile> Voices { get; set; } =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["nina"] = new()
-            {
-                ModelPath = "nina\\nina2.pth",
-                IndexPath = "nina\\added_IVF110_Flat_nprobe_1_nina2_v2.index",
-                BaseTtsVoice = "nina"
-            },
-            ["mmk"] = new()
-            {
-                ModelPath = "mmk\\MMK2.pth",
-                IndexPath = "mmk\\added_IVF76_Flat_nprobe_1_MMK2_v2.index",
-                BaseTtsVoice = "mmk"
-            },
-            ["486"] = new()
-            {
-                ModelPath = "486\\486.pth",
-                IndexPath = "486\\added_IVF73_Flat_nprobe_1_486_v2.index",
-                BaseTtsVoice = "486"
-            },
-            ["luoluo"] = new()
-            {
-                ModelPath = "luoluo\\luoluo.pth",
-                IndexPath = "luoluo\\luoluo.index",
-                BaseTtsVoice = "luoluo"
-            }
-        };
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsValid() =>
+        !string.IsNullOrWhiteSpace(DefaultVoice) &&
+        !string.IsNullOrWhiteSpace(AutoReplyVoice) &&
+        Voices.Count > 0 &&
+        Voices.ContainsKey(DefaultVoice) &&
+        Voices.ContainsKey(AutoReplyVoice) &&
+        (string.IsNullOrWhiteSpace(EmotionComparisonVoice) || Voices.ContainsKey(EmotionComparisonVoice)) &&
+        VoiceAliases.All(pair =>
+            !string.IsNullOrWhiteSpace(pair.Key) &&
+            !string.IsNullOrWhiteSpace(pair.Value) &&
+            Voices.ContainsKey(pair.Value)) &&
+        EmotionAliases.All(pair =>
+            !string.IsNullOrWhiteSpace(pair.Key) &&
+            !string.IsNullOrWhiteSpace(pair.Value)) &&
+        IndexTts.FallbackEmotionVector.Count == 8 &&
+        IndexTts.EmotionVectors.All(rule =>
+            rule.Markers.Any(marker => !string.IsNullOrWhiteSpace(marker)) &&
+            rule.Values.Count == 8 &&
+            rule.Values.All(value => value is >= 0 and <= 1));
 }
 
 public sealed class VoiceCacheOptions
@@ -93,7 +98,7 @@ public sealed class VoiceCacheOptions
 public sealed class VoiceWarmupOptions
 {
     public bool Enabled { get; set; } = true;
-    public string Voice { get; set; } = "yangyang-indextts2-faithful-a";
+    public string Voice { get; set; } = string.Empty;
     public string Text { get; set; } = "今天也请多关照。";
     public int DelaySeconds { get; set; } = 3;
 }
@@ -186,11 +191,28 @@ public sealed class IndexTtsOptions
 
     public string WorkDirectory { get; set; } = "runtime\\hime-api";
 
-    public string NumbaCacheDirectory { get; set; } = "D:\\tmp\\hime-numba-cache";
+    public string NumbaCacheDirectory { get; set; } = string.Empty;
 
     public int StartupTimeoutSeconds { get; set; } = 180;
 
     public int RequestTimeoutSeconds { get; set; } = 360;
+
+    /// <summary>
+    /// Ordered, hot-reloadable mappings from dynamic emotion labels to the
+    /// IndexTTS2 vector order: happy, angry, sad, afraid, disgusted,
+    /// melancholic, surprised, calm.
+    /// </summary>
+    public List<IndexTtsEmotionVectorRule> EmotionVectors { get; set; } = [];
+
+    /// <summary>Used when no configured marker matches. Exactly eight values are expected.</summary>
+    public List<double> FallbackEmotionVector { get; set; } = [];
+}
+
+public sealed class IndexTtsEmotionVectorRule
+{
+    public List<string> Markers { get; set; } = [];
+
+    public List<double> Values { get; set; } = [];
 }
 
 /// <summary>单个 GPT-SoVITS 声线的权重与参考音频。</summary>

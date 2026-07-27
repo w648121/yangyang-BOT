@@ -9,19 +9,11 @@ namespace Hime.Services;
 /// <summary>Owner-operated import, re-analysis and manual labeling for approved stickers.</summary>
 public sealed class StickerManagementService
 {
-    private static readonly IReadOnlyDictionary<string, string> EmotionSemanticTags =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["happy"] = "smile", ["shy"] = "blush", ["surprised"] = "surprised",
-            ["embarrassed"] = "sweatdrop", ["angry"] = "angry", ["sad"] = "crying",
-            ["comforting"] = "hug", ["serious"] = "serious", ["proud"] = "smug",
-            ["neutral"] = "expressionless"
-        };
-
     private readonly IncomingImageStore _incomingImages;
     private readonly AnimeStickerTagger _tagger;
     private readonly StickerTagCatalog _catalog;
     private readonly ImageService _images;
+    private readonly StickerLabelVocabulary _labels;
     private readonly OpenCodeStickerCatalogPublisher _publisher;
     private readonly ILogger<StickerManagementService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -34,6 +26,7 @@ public sealed class StickerManagementService
         AnimeStickerTagger tagger,
         StickerTagCatalog catalog,
         ImageService images,
+        StickerLabelVocabulary labels,
         OpenCodeStickerCatalogPublisher publisher,
         ILogger<StickerManagementService> logger)
     {
@@ -41,6 +34,7 @@ public sealed class StickerManagementService
         _tagger = tagger;
         _catalog = catalog;
         _images = images;
+        _labels = labels;
         _publisher = publisher;
         _logger = logger;
         var workingDirectory = Directory.GetCurrentDirectory();
@@ -67,7 +61,7 @@ public sealed class StickerManagementService
         try
         {
             var results = new List<StickerImportResult>(imagePaths.Count);
-            var requestedLabels = StickerLabelVocabulary.ResolveMany(manualLabels);
+            var requestedLabels = _labels.ResolveMany(manualLabels);
             foreach (var source in imagePaths)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -208,7 +202,7 @@ public sealed class StickerManagementService
             if (path is null)
                 return null;
 
-            var definitions = StickerLabelVocabulary.ResolveMany(labels);
+            var definitions = _labels.ResolveMany(labels);
             if (definitions.Count == 0)
                 return new StickerManualLabelResult(Path.GetFileName(path), path, [], [], [], false);
             var result = ReplaceManualLabels(path, definitions);
@@ -233,7 +227,7 @@ public sealed class StickerManagementService
             if (path is null)
                 return null;
 
-            var definitions = StickerLabelVocabulary.ResolveMany(labels);
+            var definitions = _labels.ResolveMany(labels);
             if (definitions.Count == 0)
                 return new StickerManualLabelResult(Path.GetFileName(path), path, [], [], [], false);
             var result = ApplyManualLabels(path, definitions);
@@ -291,11 +285,8 @@ public sealed class StickerManagementService
             .ToList();
         var semantics = (existing?.Tags ?? [])
             .Concat(definitions
-            .Where(definition => definition.Kind == StickerLabelKind.Semantic)
-            .Select(definition => definition.Canonical))
-            .Concat(definitions
-                .Where(definition => definition.Kind == StickerLabelKind.Emotion)
-                .Select(definition => EmotionSemanticTags[definition.BaseEmotion]))
+                .Where(definition => definition.Kind == StickerLabelKind.Semantic)
+                .Select(definition => definition.Canonical))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var intents = (existing?.IntentTags ?? [])
@@ -329,9 +320,6 @@ public sealed class StickerManagementService
         var semantics = definitions
             .Where(definition => definition.Kind == StickerLabelKind.Semantic)
             .Select(definition => definition.Canonical)
-            .Concat(definitions
-                .Where(definition => definition.Kind == StickerLabelKind.Emotion)
-                .Select(definition => EmotionSemanticTags[definition.BaseEmotion]))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var intents = GetExplicitIntentTags(definitions);
@@ -356,11 +344,11 @@ public sealed class StickerManagementService
             entry.IntentTags,
             true);
 
-    private static string ResolveFilter(string? filter)
+    private string ResolveFilter(string? filter)
     {
         if (string.IsNullOrWhiteSpace(filter))
             return string.Empty;
-        if (StickerLabelVocabulary.TryResolve(filter, out var definition))
+        if (_labels.TryResolve(filter, out var definition))
             return definition.Canonical;
         return filter.Trim().TrimStart('#').ToLowerInvariant();
     }

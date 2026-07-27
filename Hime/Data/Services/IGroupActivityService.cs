@@ -13,9 +13,24 @@ public interface IGroupActivityService
         string content,
         IReadOnlyList<string> imagePaths,
         IReadOnlyList<string>? stickerEmotions = null,
-        IReadOnlyList<string>? stickerTags = null);
+        IReadOnlyList<string>? stickerTags = null,
+        long messageId = 0,
+        string? accountId = null,
+        long? replyToMessageId = null,
+        long? replyToUserId = null,
+        string? quotedText = null,
+        IReadOnlyList<long>? mentionedUserIds = null,
+        string? topicId = null,
+        IReadOnlyList<long>? conversationParticipants = null);
 
-    void RecordBotReply(long groupId, string content);
+    void RecordBotReply(
+        long groupId,
+        string content,
+        long? replyToMessageId = null,
+        long? replyToUserId = null,
+        string? topicId = null,
+        IReadOnlyList<long>? conversationParticipants = null,
+        long messageId = 0);
 
     void RecordProactiveDecision(long groupId);
 

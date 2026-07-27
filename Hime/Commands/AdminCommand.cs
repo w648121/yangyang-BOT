@@ -60,7 +60,7 @@ public sealed class AdminCommand
     [Command(
         Expressions = ["admin", "管理"],
         MatchType = Sora.Core.Enums.MatchType.Keyword,
-        Description = "管理员诊断：/admin 状态 | 磁盘 [C] | 表情 | 权限 | 文件 personas/hime.md")]
+        Description = "管理员诊断：/admin 状态 | 磁盘 [C] | 表情 | 权限 | 文件")]
     public async ValueTask Execute(MessageReceivedEvent e)
     {
         if (!IsAuthorizedPrivateRequest(e))
@@ -94,7 +94,7 @@ public sealed class AdminCommand
         return !_options.PrivateChatOnly || e.Message.SourceType != MessageSourceType.Group;
     }
 
-    private static string BuildHelp() =>
+    private string BuildHelp() =>
         "管理员诊断（仅私聊）\n" +
         "/admin 状态\n" +
         "/admin 权限\n" +
@@ -102,7 +102,7 @@ public sealed class AdminCommand
         "/admin 人格\n" +
         "/admin 磁盘 [C]\n" +
         "/admin 表情\n" +
-        "/admin 文件 personas/hime.md";
+        $"/admin 文件 personas/{_runtimeProfile.Current.PersonaFile}";
 
     private string BuildPersonaStatus()
     {
@@ -194,7 +194,7 @@ public sealed class AdminCommand
     private async Task<string> ReadAllowedFileAsync(string argument)
     {
         if (string.IsNullOrWhiteSpace(argument))
-            return "用法：/admin 文件 personas/hime.md";
+            return $"用法：/admin 文件 personas/{_runtimeProfile.Current.PersonaFile}";
 
         if (!TryResolveAllowedTextFile(argument, out var path))
             return "该文件不在允许的只读目录内，或不是可读取的文本文件。";

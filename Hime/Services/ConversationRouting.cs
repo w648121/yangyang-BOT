@@ -10,10 +10,14 @@ namespace Hime.Services;
 public sealed class ConversationRouter
 {
     private readonly IOptionsMonitor<ModelRoutingOptions> _modelRouting;
+    private readonly IOptionsMonitor<ResponsePolicyOptions> _responsePolicies;
 
-    public ConversationRouter(IOptionsMonitor<ModelRoutingOptions> modelRouting)
+    public ConversationRouter(
+        IOptionsMonitor<ModelRoutingOptions> modelRouting,
+        IOptionsMonitor<ResponsePolicyOptions> responsePolicies)
     {
         _modelRouting = modelRouting;
+        _responsePolicies = responsePolicies;
     }
 
     public ConversationRoute Route(string prompt)
@@ -68,30 +72,35 @@ public sealed class ConversationRouter
             : AiRequestProfile.Default;
     }
 
-    public static string BuildSystemPolicy(ConversationRoute route) => route.Mode switch
+    public string BuildSystemPolicy(ConversationRoute route)
     {
-        ConversationMode.Factual =>
-            """
-            Response mode: verified factual answer.
-            Answer in concise Simplified Chinese. Follow trusted runtime facts supplied by the application.
-            Do not role-play, produce Japanese/Chinese bilingual formatting, emojis, images, voice markers, emotion markers, or memory markers.
-            Never invent a fact. If a fact is unavailable, say so plainly.
-            This runtime policy overrides persona formatting rules for this reply.
-            """,
-        ConversationMode.Technical =>
-            """
-            Response mode: serious technical answer.
-            Answer in clear Simplified Chinese, with the conclusion first and short steps only when useful.
-            Do not role-play, produce Japanese/Chinese bilingual formatting, emojis, images, voice markers, emotion markers, or memory markers.
-            Do not claim to have inspected files, disks, logs, web pages, tools, or permissions unless the application supplied the result in trusted context.
-            Explicitly distinguish verified facts, unavailable capabilities, and suggestions. This runtime policy overrides persona formatting rules for this reply.
-            """,
-        _ =>
-            """
-            Response mode: ordinary conversation.
-            Keep the active Hime persona, but stay responsive to the user's concrete question. Do not invent access to tools, files, web pages, or system state.
-            """
-    };
+        var policies = _responsePolicies.CurrentValue;
+        var lines = route.Mode switch
+        {
+            ConversationMode.Factual => policies.Factual,
+            ConversationMode.Technical => policies.Technical,
+            _ => policies.Casual
+        };
+        return string.Join(
+            Environment.NewLine,
+            lines.Where(line => !string.IsNullOrWhiteSpace(line)).Select(line => line.Trim()));
+    }
+}
+
+/// <summary>
+/// Hot-reloadable content constraints for each conversation route. Accuracy
+/// changes what may be claimed, never which persona is speaking.
+/// </summary>
+public sealed class ResponsePolicyOptions
+{
+    public List<string> Casual { get; set; } = [];
+    public List<string> Factual { get; set; } = [];
+    public List<string> Technical { get; set; } = [];
+
+    public bool IsValid() =>
+        Casual.Any(line => !string.IsNullOrWhiteSpace(line)) &&
+        Factual.Any(line => !string.IsNullOrWhiteSpace(line)) &&
+        Technical.Any(line => !string.IsNullOrWhiteSpace(line));
 }
 
 public enum ConversationMode

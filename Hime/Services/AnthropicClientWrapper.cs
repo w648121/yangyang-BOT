@@ -166,7 +166,7 @@ public class AnthropicClientWrapper : IAiClient
     {
         var list = new List<object>(history.Count + 1);
         if (!string.IsNullOrWhiteSpace(systemPrompt))
-            list.Add(new { role = "system", name = "秧秧", content = systemPrompt });
+            list.Add(new { role = "system", content = systemPrompt });
 
         foreach (var message in history)
         {

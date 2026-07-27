@@ -17,21 +17,6 @@ namespace Hime.Services;
 /// </summary>
 public sealed class AnimeStickerTagger : IDisposable
 {
-    private static readonly IReadOnlyDictionary<string, string[]> EmotionTags =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["happy"] = ["smile", "laughing", "grin", "happy", "joy", "excited", "amused", "relieved"],
-            ["sad"] = ["crying", "tears", "tear", "sad", "frown", "teary_eyes", "gloom", "despair"],
-            ["angry"] = ["angry", "annoyed", "pout", "furrowed_brow", "frustrated", "disgust", "disgusted"],
-            ["surprised"] = ["surprised", "shock", "shocked", "wide_eyed", "confused", "questioning", "scared", "fear"],
-            ["shy"] = ["blush", "shy", "embarrassed", "nervous", "flustered", "looking_away"],
-            ["embarrassed"] = ["embarrassed", "sweatdrop", "sweat", "blush", "flustered"],
-            ["proud"] = ["smug", "smirk", "arrogant", "triumphant"],
-            ["comforting"] = ["hug", "patting_head", "headpat", "holding_hands"],
-            ["serious"] = ["serious", "expressionless", "stern", "determined", "bored", "sleepy", "tired"],
-            ["neutral"] = ["expressionless", "neutral_face", "blank_stare"]
-        };
-
     private readonly AnimeTaggerOptions _options;
     private readonly ILogger<AnimeStickerTagger> _logger;
     private readonly object _sync = new();
@@ -111,8 +96,9 @@ public sealed class AnimeStickerTagger : IDisposable
                     .Select(pair => new ScoredTag(pair.First.Name, pair.Second))
                     .ToList();
 
+                var emotionTags = NormalizeTagMap(_options.EmotionTagMap);
                 var semantic = detected
-                    .Where(item => EmotionTags.Values.SelectMany(tags => tags)
+                    .Where(item => emotionTags.Values.SelectMany(tags => tags)
                         .Contains(item.Name, StringComparer.OrdinalIgnoreCase))
                     .OrderByDescending(item => item.Score)
                     .Take(Math.Clamp(_options.MaximumSemanticTags, 1, 12))
@@ -122,7 +108,7 @@ public sealed class AnimeStickerTagger : IDisposable
 
                 // Multi-label probabilities are independent: a blushing smile can be
                 // both shy and happy. They intentionally do not sum to one.
-                var emotionScores = EmotionTags
+                var emotionScores = emotionTags
                     .Select(rule => new
                     {
                         Emotion = rule.Key,
@@ -147,7 +133,7 @@ public sealed class AnimeStickerTagger : IDisposable
                     Math.Clamp(emotion.Value, 0, 1),
                     semantic.Select(item => item.Name).ToList(),
                     emotionScores,
-                    InferIntentTags(semantic.Select(item => item.Name)),
+                    InferIntentTags(semantic.Select(item => item.Name), _options.IntentTagMap),
                     frameScores.Count,
                     totalFrames);
             }
@@ -311,22 +297,31 @@ public sealed class AnimeStickerTagger : IDisposable
         return values.Count == 0 ? 0 : 1d - values.Aggregate(1d, (remaining, score) => remaining * (1d - score));
     }
 
-    private static IReadOnlyList<string> InferIntentTags(IEnumerable<string> semanticTags)
+    private static IReadOnlyList<string> InferIntentTags(
+        IEnumerable<string> semanticTags,
+        IReadOnlyDictionary<string, List<string>> intentTagMap)
     {
         var tags = semanticTags.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var intents = new List<string>();
-        if (tags.Overlaps(["hug", "patting_head", "headpat", "holding_hands"]))
-            intents.AddRange(["comforting", "caring", "gentle"]);
-        if (tags.Overlaps(["smug", "smirk", "pout", "amused"]))
-            intents.Add("teasing");
-        if (tags.Overlaps(["smile", "laughing", "grin", "happy"]))
-            intents.Add("friendly");
-        if (tags.Overlaps(["crying", "tears", "teary_eyes", "frown"]))
-            intents.Add("vulnerable");
-        if (tags.Overlaps(["expressionless", "neutral_face", "blank_stare", "sleepy"]))
-            intents.Add("calm");
-        return intents.Distinct(StringComparer.OrdinalIgnoreCase).Take(6).ToList();
+        return NormalizeTagMap(intentTagMap)
+            .Where(rule => tags.Overlaps(rule.Value))
+            .Select(rule => rule.Key)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(6)
+            .ToList();
     }
+
+    private static Dictionary<string, List<string>> NormalizeTagMap(
+        IReadOnlyDictionary<string, List<string>> map) =>
+        map
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
+            .ToDictionary(
+                pair => NormalizeTag(pair.Key),
+                pair => pair.Value
+                    .Where(tag => !string.IsNullOrWhiteSpace(tag))
+                    .Select(NormalizeTag)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                StringComparer.OrdinalIgnoreCase);
 
     public void Dispose() => _session?.Dispose();
 

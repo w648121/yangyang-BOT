@@ -142,16 +142,31 @@ public sealed class JobEditIntentParser(
             display);
     }
 
-    private static string Normalize(string text)
+    private string Normalize(string text)
     {
         var value = text.Trim();
-        value = Regex.Replace(
-            value,
-            @"^(?:秧秧[\s，,]*)?(?:把这个提醒|这个提醒|提醒)?\s*(?:改一下|修改(?:成|为)?|改成|调整(?:成|为)?|换成|变成)\s*",
-            string.Empty);
+        value = TrimConfiguredPrefix(value, options.CurrentValue.AssistantAliases);
+        value = TrimConfiguredPrefix(value, options.CurrentValue.EditLeadInMarkers);
+        value = TrimConfiguredPrefix(value, options.CurrentValue.EditStripMarkers);
         value = value.Trim(' ', '，', ',', '。', '.', '！', '!', '：', ':');
         if (value.StartsWith("是", StringComparison.Ordinal) && value.Length > 1)
             value = value[1..].Trim();
+        return value;
+    }
+
+    private static string TrimConfiguredPrefix(string text, IEnumerable<string> prefixes)
+    {
+        var value = text;
+        foreach (var prefix in prefixes
+                     .Where(prefix => !string.IsNullOrWhiteSpace(prefix))
+                     .OrderByDescending(prefix => prefix.Length))
+        {
+            if (!value.StartsWith(prefix.Trim(), StringComparison.OrdinalIgnoreCase))
+                continue;
+            value = value[prefix.Trim().Length..]
+                .Trim(' ', '，', ',', '。', '.', '！', '!', '：', ':');
+            break;
+        }
         return value;
     }
 

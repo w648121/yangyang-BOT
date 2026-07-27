@@ -11,7 +11,7 @@ namespace Hime.Services;
 
 /// <summary>
 /// Lets Hime occasionally join a normal group discussion. This is intentionally separate
-/// from command handling, stickers, and targeted interaction so each path has clear limits.
+/// from command handling and stickers so each path has clear limits.
 /// </summary>
 public sealed class ReactiveConversationService
 {
@@ -35,6 +35,7 @@ public sealed class ReactiveConversationService
     private readonly GroupResponseStateService _groupResponses;
     private readonly ReactiveConversationOptions _options;
     private readonly SocialTurnCoordinator _socialTurns;
+    private readonly ReplyCandidateJudgeService _candidateJudge;
     private readonly PersonaComplianceService _personaCompliance;
     private readonly AutoVoiceDeliveryService _autoVoiceDelivery;
     private readonly ScheduledReplyDispatcher _scheduledReplies;
@@ -52,6 +53,7 @@ public sealed class ReactiveConversationService
         GroupResponseStateService groupResponses,
         IOptions<ReactiveConversationOptions> options,
         SocialTurnCoordinator socialTurns,
+        ReplyCandidateJudgeService candidateJudge,
         PersonaComplianceService personaCompliance,
         AutoVoiceDeliveryService autoVoiceDelivery,
         ScheduledReplyDispatcher scheduledReplies,
@@ -63,6 +65,7 @@ public sealed class ReactiveConversationService
         _groupResponses = groupResponses;
         _options = options.Value;
         _socialTurns = socialTurns;
+        _candidateJudge = candidateJudge;
         _personaCompliance = personaCompliance;
         _autoVoiceDelivery = autoVoiceDelivery;
         _scheduledReplies = scheduledReplies;
@@ -74,9 +77,8 @@ public sealed class ReactiveConversationService
     public async Task<ReactiveConversationResult> TryReplyAsync(
         IncomingMessage incoming,
         string rawText,
-        bool isAtBot,
+        ConversationFocusDecision? focus,
         bool stickerReplyAlreadySent,
-        bool isTargetedInteractionUser,
         CancellationToken cancellationToken = default)
     {
         var message = incoming.NativeEvent;
@@ -87,12 +89,11 @@ public sealed class ReactiveConversationService
         if (!_options.Enabled ||
             message.Message.SourceType != Sora.Core.Enums.MessageSourceType.Group ||
             !_groupResponses.IsEnabled(groupId) ||
-            isAtBot ||
-            isTargetedInteractionUser ||
+            focus?.AllowsNaturalReaction != true ||
             stickerReplyAlreadySent ||
             content.Length < Math.Max(1, _options.MinMessageCharacters) ||
             content.StartsWith('/') ||
-            !ShouldReply(content) ||
+            !ShouldReply(focus) ||
             !TryBegin(groupId, userId))
         {
             return ReactiveConversationResult.NotSent;
@@ -115,15 +116,26 @@ public sealed class ReactiveConversationService
                 HimeStyleScene.GroupReply,
                 RequireEmotionMarker: true,
                 CorpusMaximum: 2,
-                PlotMaximum: 3));
+                PlotMaximum: 3,
+                Focus: focus));
             var history = socialPlan.Messages;
             var generated = await _ai.ChatAsync(
                 history,
                 senderId: userId,
                 ct: cancellationToken,
                 requestProfile: socialPlan.RequestProfile);
-            var refined = await _personaCompliance.RefineIfNeededAsync(
+            var candidateChoice = await _candidateJudge.SelectBestAsync(
                 generated,
+                socialPlan,
+                content,
+                userId,
+                HimeStyleScene.GroupReply,
+                casual: true,
+                requireEmotionMarker: true,
+                ReplyCandidateJudgeUsage.ReactiveConversation,
+                cancellationToken);
+            var refined = await _personaCompliance.RefineIfNeededAsync(
+                candidateChoice.Reply,
                 content,
                 "群内自然接话",
                 userId,
@@ -157,7 +169,8 @@ public sealed class ReactiveConversationService
                 var replyMessage = new MessageBody()
                     .AddReply(message.Message.MessageId)
                     .AddText(reply);
-                await message.Api.SendGroupMessageAsync(groupId, replyMessage, sendToken);
+                var sendResult = await message.Api.SendGroupMessageAsync(groupId, replyMessage, sendToken);
+                var platformMessageId = PlatformSendResultInspector.TryGetMessageId(sendResult);
                 if (sticker is not null)
                 {
                     var stickerMessage = new MessageBody().AddImage(
@@ -171,7 +184,13 @@ public sealed class ReactiveConversationService
                         reply,
                         sticker is null ? Array.Empty<string>() : [sticker],
                         emotion,
-                        "reactive-conversation"));
+                        "reactive-conversation")
+                    {
+                        PlatformMessageId = platformMessageId,
+                        SocialIntentId = socialPlan.SocialIntent.IntentId,
+                        DialogueAct = socialPlan.Decision.Act.ToString(),
+                        CandidateSummary = BuildCandidateSummary(candidateChoice)
+                    });
                 _autoVoiceDelivery.Enqueue(
                     reply,
                     async (path, token) =>
@@ -217,14 +236,14 @@ public sealed class ReactiveConversationService
         }
     }
 
-    private bool ShouldReply(string content)
+    private bool ShouldReply(ConversationFocusDecision focus)
     {
-        var probability = ContainsBotName(content)
-            ? _options.BotNameReplyProbability
-            : LooksLikeQuestion(content)
-                ? _options.QuestionReplyProbability
-                : _options.BaseReplyProbability;
-        return Random.Shared.NextDouble() < Math.Clamp(probability, 0, 1);
+        var probability =
+            Math.Max(0, _options.BaseReplyProbability) +
+            Math.Clamp(focus.ParticipationScore, 0, 1) *
+            Math.Max(0, _options.ParticipationProbabilityWeight);
+        var maximum = Math.Clamp(_options.MaximumReplyProbability, 0, 1);
+        return Random.Shared.NextDouble() < Math.Min(maximum, probability);
     }
 
     private bool TryBegin(long groupId, long userId)
@@ -307,22 +326,23 @@ public sealed class ReactiveConversationService
         return reply.Length <= max ? reply : string.Empty;
     }
 
-    private static string ExtractEmotion(string? generated)
+    private string ExtractEmotion(string? generated)
     {
         var match = EmotionMarker.Match(generated ?? string.Empty);
         if (!match.Success)
-            return "neutral";
+            return _images.NormalizeEmotion(string.Empty);
         var value = match.Groups[1].Value.Trim().ToLowerInvariant();
-        return ImageService.CanonicalEmotions.Contains(value, StringComparer.OrdinalIgnoreCase)
-            ? value
-            : "neutral";
+        return _images.TryNormalizeEmotion(value, out var emotion)
+            ? emotion
+            : _images.NormalizeEmotion(string.Empty);
     }
 
     private string? ExtractSticker(string? generated)
     {
         var exact = StickerIdMarker.Match(generated ?? string.Empty);
         if (exact.Success)
-            return _images.ResolveStickerId(exact.Groups[1].Value) ?? _images.ResolveEmotion("neutral");
+            return _images.ResolveStickerId(exact.Groups[1].Value) ??
+                   _images.ResolveEmotion(_images.NormalizeEmotion(string.Empty));
 
         var semantic = StickerMarker.Match(generated ?? string.Empty);
         if (semantic.Success)
@@ -330,23 +350,27 @@ public sealed class ReactiveConversationService
         return null;
     }
 
-    private static bool LooksLikeQuestion(string value) =>
-        value.Contains('\uFF1F') || value.Contains('?') ||
-        value.Contains("\u600E\u4E48", StringComparison.Ordinal) ||
-        value.Contains("\u4E3A\u4EC0\u4E48", StringComparison.Ordinal) ||
-        value.Contains("\u6709\u6CA1\u6709", StringComparison.Ordinal) ||
-        value.Contains("\u80FD\u4E0D\u80FD", StringComparison.Ordinal) ||
-        value.Contains("\u8C01", StringComparison.Ordinal);
+    private static string BuildCandidateSummary(ReplyCandidateChoice choice)
+    {
+        var best = choice.Candidates
+            .OrderByDescending(candidate => candidate.Score)
+            .FirstOrDefault();
+        var primary = choice.Candidates.FirstOrDefault(candidate =>
+            candidate.Source.Equals("primary", StringComparison.OrdinalIgnoreCase));
+        var status = choice.Replaced ? "已替换首版" : "保留首版";
+        var primaryScore = primary is null ? "?" : primary.Score.ToString("0.0");
+        var bestScore = best is null ? "?" : best.Score.ToString("0.0");
+        var reason = best?.Reasons.FirstOrDefault();
+        return string.IsNullOrWhiteSpace(reason)
+            ? $"{status}，候选 {choice.Candidates.Count}，首版 {primaryScore}，最佳 {bestScore}"
+            : $"{status}，候选 {choice.Candidates.Count}，首版 {primaryScore}，最佳 {bestScore}，原因：{Trim(reason, 42)}";
+    }
 
-    private static bool ContainsBotName(string value) =>
-        value.Contains("秧秧", StringComparison.Ordinal) ||
-        value.Contains("hime", StringComparison.OrdinalIgnoreCase) ||
-        value.Contains("\u5C0F\u59EC", StringComparison.Ordinal) ||
-        value.Contains("bot", StringComparison.OrdinalIgnoreCase) ||
-        value.Contains("\u673A\u5668\u4EBA", StringComparison.Ordinal);
-
-    private static string Trim(string value, int maxLength) =>
-        value.Length <= maxLength ? value : value[..maxLength] + "...";
+    private static string Trim(string? value, int maxLength)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        return normalized.Length <= maxLength ? normalized : normalized[..maxLength] + "...";
+    }
 }
 
 public sealed record ReactiveConversationResult(bool Sent)

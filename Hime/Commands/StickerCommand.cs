@@ -15,15 +15,18 @@ public sealed class StickerCommand
     private const int PageSize = 5;
     private readonly AdminOptions _admin;
     private readonly StickerManagementService _stickers;
+    private readonly StickerLabelVocabulary _labels;
     private readonly ILogger<StickerCommand> _logger;
 
     public StickerCommand(
         IOptions<AdminOptions> admin,
         StickerManagementService stickers,
+        StickerLabelVocabulary labels,
         ILogger<StickerCommand> logger)
     {
         _admin = admin.Value;
         _stickers = stickers;
+        _labels = labels;
         _logger = logger;
     }
 
@@ -98,7 +101,7 @@ public sealed class StickerCommand
     private async Task AddAsync(MessageReceivedEvent e, string labelText)
     {
         var requestedLabels = ParseLabels(labelText);
-        if (!string.IsNullOrWhiteSpace(labelText) && StickerLabelVocabulary.ResolveMany(requestedLabels).Count == 0)
+        if (!string.IsNullOrWhiteSpace(labelText) && _labels.ResolveMany(requestedLabels).Count == 0)
         {
             await ReplyAsync(e, "没有识别出有效标签。发送 /表情 标签 查看可用的动态标签。");
             return;
@@ -261,12 +264,12 @@ public sealed class StickerCommand
         "/表情 标签 [关键词]：查看完整动态标签或某类标签\n" +
         "/表情 帮助：显示本说明";
 
-    private static string BuildEmotionReference(string query)
+    private string BuildEmotionReference(string query)
     {
-        IEnumerable<StickerLabelDefinition> definitions = StickerLabelVocabulary.All;
+        IEnumerable<StickerLabelDefinition> definitions = _labels.All;
         if (!string.IsNullOrWhiteSpace(query))
         {
-            if (StickerLabelVocabulary.TryResolve(query, out var selected))
+            if (_labels.TryResolve(query, out var selected))
                 definitions = definitions.Where(item => item.BaseEmotion.Equals(selected.BaseEmotion, StringComparison.OrdinalIgnoreCase));
             else
                 definitions = definitions.Where(item =>
@@ -317,8 +320,8 @@ public sealed class StickerCommand
             await e.Api.SendFriendMessageAsync(e.Message.SenderId, body);
     }
 
-    private static IReadOnlyList<string> ParseLabels(string text) =>
-        StickerLabelVocabulary.SplitInput(text);
+    private IReadOnlyList<string> ParseLabels(string text) =>
+        _labels.SplitInput(text);
 
     private static async Task ReplyAsync(MessageReceivedEvent e, string text)
     {

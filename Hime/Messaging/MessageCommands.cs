@@ -6,19 +6,6 @@ using Sora.Entities.Events;
 
 namespace Hime.Messaging;
 
-/// <summary>Compatibility command removed after the remaining legacy router is split into handlers.</summary>
-public sealed record DispatchLegacyMessageCommand(
-    Func<CancellationToken, Task> Execute) : ICommand;
-
-public sealed class DispatchLegacyMessageCommandHandler :
-    ICommandHandler<DispatchLegacyMessageCommand>
-{
-    public Task HandleAsync(
-        DispatchLegacyMessageCommand command,
-        CancellationToken cancellationToken) =>
-        command.Execute(cancellationToken);
-}
-
 public sealed record GenerateAiReplyCommand(
     IncomingMessage Message,
     string Prompt) : ICommand;
@@ -84,39 +71,11 @@ public sealed class SendSetuRequestCommandHandler(
         setu.HandleAsync(command.Message, command.Request, cancellationToken);
 }
 
-public sealed record TryTargetedInteractionCommand(
-    MessageReceivedEvent Message,
-    string RawText,
-    bool ContainsVisual,
-    bool IsBotDirected,
-    bool StickerReplyAlreadySent) : ICommand;
-
-public sealed class TryTargetedInteractionCommandHandler(
-    TargetedInteractionService interactions,
-    IGroupActivityService groupActivities) : ICommandHandler<TryTargetedInteractionCommand>
-{
-    public async Task HandleAsync(
-        TryTargetedInteractionCommand command,
-        CancellationToken cancellationToken)
-    {
-        var result = await interactions.TryReplyAsync(
-            command.Message,
-            command.RawText,
-            command.ContainsVisual,
-            command.IsBotDirected,
-            command.StickerReplyAlreadySent,
-            cancellationToken);
-        if (result.Sent)
-            groupActivities.RecordBotReply(command.Message.Message.GroupId, "[群专用轻度互动]");
-    }
-}
-
 public sealed record TryReactiveConversationCommand(
     IncomingMessage Message,
     string RawText,
-    bool IsBotDirected,
-    bool StickerReplyAlreadySent,
-    bool IsTargetedInteractionUser) : ICommand;
+    ConversationFocusDecision? Focus,
+    bool StickerReplyAlreadySent) : ICommand;
 
 public sealed class TryReactiveConversationCommandHandler(
     ReactiveConversationService conversations) : ICommandHandler<TryReactiveConversationCommand>
@@ -128,9 +87,8 @@ public sealed class TryReactiveConversationCommandHandler(
         await conversations.TryReplyAsync(
             command.Message,
             command.RawText,
-            command.IsBotDirected,
+            command.Focus,
             command.StickerReplyAlreadySent,
-            command.IsTargetedInteractionUser,
             cancellationToken);
     }
 }

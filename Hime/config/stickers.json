@@ -87,7 +87,28 @@
     "TagsPath": "D:\\PycharmProjects\\Hime\\Hime\\models\\wd-vit-tagger-v3\\selected_tags.csv",
     "MinimumModelBytes": 52428800,
     "TagConfidenceThreshold": 0.3,
-    "MaximumSemanticTags": 6
+    "MaximumSemanticTags": 6,
+    "EmotionTagMap": {
+      "happy": ["smile", "laughing", "grin", "happy", "joy", "excited", "amused", "relieved"],
+      "sad": ["crying", "tears", "tear", "sad", "frown", "teary_eyes", "gloom", "despair"],
+      "angry": ["angry", "annoyed", "pout", "furrowed_brow", "frustrated", "disgust", "disgusted"],
+      "surprised": ["surprised", "shock", "shocked", "wide_eyed", "confused", "questioning", "scared", "fear"],
+      "shy": ["blush", "shy", "embarrassed", "nervous", "flustered", "looking_away"],
+      "embarrassed": ["embarrassed", "sweatdrop", "sweat", "blush", "flustered"],
+      "proud": ["smug", "smirk", "arrogant", "triumphant"],
+      "comforting": ["hug", "patting_head", "headpat", "holding_hands"],
+      "serious": ["serious", "expressionless", "stern", "determined", "bored", "sleepy", "tired"],
+      "neutral": ["expressionless", "neutral_face", "blank_stare"]
+    },
+    "IntentTagMap": {
+      "comforting": ["hug", "patting_head", "headpat", "holding_hands"],
+      "caring": ["hug", "patting_head", "headpat", "holding_hands"],
+      "gentle": ["hug", "patting_head", "headpat", "holding_hands"],
+      "teasing": ["smug", "smirk", "pout", "amused"],
+      "friendly": ["smile", "laughing", "grin", "happy"],
+      "vulnerable": ["crying", "tears", "teary_eyes", "frown"],
+      "calm": ["expressionless", "neutral_face", "blank_stare", "sleepy"]
+    }
   },
   "StickerTags": {
     "CatalogPath": "data/sticker-tags.json",

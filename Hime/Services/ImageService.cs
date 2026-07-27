@@ -9,43 +9,6 @@ namespace Hime.Services;
 /// </summary>
 public sealed class ImageService
 {
-    private static readonly IReadOnlyDictionary<string, string> EmotionAliases =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["开心"] = "happy", ["快乐"] = "happy", ["高兴"] = "happy",
-            ["害羞"] = "shy", ["羞涩"] = "shy",
-            ["惊讶"] = "surprised", ["震惊"] = "surprised",
-            ["尴尬"] = "embarrassed", ["慌乱"] = "embarrassed",
-            ["生气"] = "angry", ["愤怒"] = "angry",
-            ["难过"] = "sad", ["悲伤"] = "sad",
-            ["安慰"] = "comforting", ["治愈"] = "comforting",
-            ["认真"] = "serious", ["严肃"] = "serious",
-            ["得意"] = "proud", ["骄傲"] = "proud",
-            ["平静"] = "neutral", ["普通"] = "neutral"
-        };
-
-    public static readonly IReadOnlyList<string> CanonicalEmotions =
-    [
-        "happy", "shy", "surprised", "embarrassed", "angry",
-        "sad", "comforting", "serious", "proud", "neutral"
-    ];
-
-    private static readonly IReadOnlyDictionary<string, string> SemanticTagAliases =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["happy"] = "smile", ["joy"] = "smile", ["grin"] = "smile", ["laughing"] = "smile",
-            ["sad"] = "crying", ["tear"] = "crying", ["tears"] = "crying", ["teary_eyes"] = "crying",
-            ["shy"] = "blush", ["embarrassed"] = "blush", ["sweatdrop"] = "embarrassed",
-            ["surprised"] = "surprised", ["shock"] = "surprised", ["shocked"] = "surprised",
-            ["angry"] = "angry", ["annoyed"] = "angry", ["pout"] = "pout",
-            ["proud"] = "smug", ["smirk"] = "smug",
-            ["comforting"] = "hug", ["headpat"] = "hug", ["patting_head"] = "hug",
-            ["serious"] = "serious", ["neutral"] = "expressionless",
-            ["confused"] = "confused", ["questioning"] = "confused",
-            ["sleepy"] = "sleepy", ["tired"] = "sleepy", ["excited"] = "excited",
-            ["nervous"] = "nervous", ["disgust"] = "disgust", ["scared"] = "scared"
-        };
-
     private readonly Dictionary<string, string> _images;
     private readonly Dictionary<string, List<string>> _emotionImages;
     private readonly string _imageDir;
@@ -57,6 +20,7 @@ public sealed class ImageService
     private readonly long _maxSendableStickerBytes;
     private readonly ILogger<ImageService>? _logger;
     private readonly StickerTagCatalog _stickerTags;
+    private readonly StickerLabelVocabulary _labels;
     private readonly StickerTagOptions _stickerTagOptions;
     private readonly object _sync = new();
 
@@ -66,11 +30,13 @@ public sealed class ImageService
     public ImageService(
         IOptions<ImageOptions> options,
         StickerTagCatalog stickerTags,
+        StickerLabelVocabulary labels,
         IOptions<StickerTagOptions> stickerTagOptions,
         ILogger<ImageService>? logger = null)
     {
         var opts = options.Value;
         _stickerTags = stickerTags;
+        _labels = labels;
         _stickerTagOptions = stickerTagOptions.Value;
         _logger = logger;
         _maxSendableStickerBytes = Math.Max(64 * 1024, opts.MaxSendableStickerBytes);
@@ -99,11 +65,6 @@ public sealed class ImageService
         _scanDirectories.AddRange(opts.AdditionalDirectories.Select(directory =>
             Path.IsPathRooted(directory) ? directory : Path.Combine(AppContext.BaseDirectory, directory)));
         ScanDirectories();
-    }
-
-    public ImageService(IOptions<ImageOptions> options, StickerTagCatalog stickerTags)
-        : this(options, stickerTags, Options.Create(new StickerTagOptions()), null)
-    {
     }
 
     /// <summary>Refreshes the allow-listed library after a human approves new stickers.</summary>
@@ -170,44 +131,21 @@ public sealed class ImageService
         return IsApprovedStickerPathCore(fullPath);
     }
 
-    /// <summary>把中英文情绪标签统一为固定英文标签。</summary>
-    public string NormalizeEmotion(string emotion)
-    {
-        var value = emotion.Trim();
-        if (EmotionAliases.TryGetValue(value, out var canonical))
-            return canonical;
+    public IReadOnlyList<string> CanonicalEmotions => _labels.BaseEmotions;
 
-        return CanonicalEmotions.Contains(value, StringComparer.OrdinalIgnoreCase)
-            ? value.ToLowerInvariant()
-            : "neutral";
-    }
+    /// <summary>把运行时词表中的中英文情绪标签统一为基础情绪。</summary>
+    public string NormalizeEmotion(string emotion)
+        => _labels.NormalizeBaseEmotion(emotion);
 
     public bool TryNormalizeEmotion(string? emotion, out string canonical)
     {
-        canonical = string.Empty;
-        if (string.IsNullOrWhiteSpace(emotion))
-            return false;
-
-        var value = emotion.Trim();
-        if (EmotionAliases.TryGetValue(value, out var alias))
-        {
-            canonical = alias;
-            return true;
-        }
-        if (!CanonicalEmotions.Contains(value, StringComparer.OrdinalIgnoreCase))
-        {
-            canonical = string.Empty;
-            return false;
-        }
-
-        canonical = value.ToLowerInvariant();
-        return true;
+        return _labels.TryNormalizeBaseEmotion(emotion, out canonical);
     }
 
     /// <summary>Normalizes model-supplied semantic tags before they can select a sticker.</summary>
     public IReadOnlyList<string> NormalizeStickerTags(IEnumerable<string>? tags) =>
         StickerTagCatalog.NormalizeTags(tags)
-            .Select(tag => SemanticTagAliases.TryGetValue(tag, out var alias) ? alias : tag)
+            .Select(tag => _labels.TryResolve(tag, out var definition) ? definition.Canonical : tag)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(8)
             .ToList();
@@ -307,7 +245,7 @@ public sealed class ImageService
             {
                 var entry = _stickerTags.GetEntry(candidate.StickerId);
                 return entry is not null &&
-                       (entry.EmotionScores.GetValueOrDefault("neutral") >= 0.35 ||
+                       (entry.EmotionScores.GetValueOrDefault(_labels.FallbackEmotion) >= 0.35 ||
                         entry.Tags.Concat(entry.IntentTags).Any(neutralTags.Contains));
             })
             .OrderBy(_ => Random.Shared.Next())
@@ -418,19 +356,60 @@ public sealed class ImageService
             paths = _images.Values.Distinct(StringComparer.OrdinalIgnoreCase).Where(File.Exists).ToList();
         var entries = _stickerTags.GetEntries(paths)
             .Where(entry => entry.CatalogVersion >= StickerTagCatalog.CurrentCatalogVersion)
-            .ToList();
+            .ToDictionary(entry => entry.FileName, StringComparer.OrdinalIgnoreCase);
         return new OpenCodeStickerCatalogSnapshot
         {
             StrongMatchThreshold = Math.Clamp(_stickerTagOptions.StrongMatchThreshold, 0.5, 1),
             PartialMatchThreshold = Math.Clamp(_stickerTagOptions.PartialMatchThreshold, 0.25, 1),
             NeutralFallbackTags = StickerTagCatalog.NormalizeTags(_stickerTagOptions.NeutralFallbackTags).ToList(),
-            Stickers = entries.Select(entry => new OpenCodeStickerCatalogItem
+            Stickers = paths
+                .Select(path => BuildOpenCodeSnapshotItem(path, entries.GetValueOrDefault(Path.GetFileName(path))))
+                .OrderBy(item => item.StickerId, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+        };
+    }
+
+    private OpenCodeStickerCatalogItem BuildOpenCodeSnapshotItem(
+        string path,
+        StickerTagCatalogEntry? entry)
+    {
+        if (entry is not null)
+        {
+            return new OpenCodeStickerCatalogItem
             {
                 StickerId = entry.FileName,
                 Emotions = new Dictionary<string, double>(entry.EmotionScores, StringComparer.OrdinalIgnoreCase),
                 SemanticTags = NormalizeStickerTags(entry.Tags).ToList(),
                 IntentTags = StickerTagCatalog.NormalizeTags(entry.IntentTags).Take(8).ToList()
-            }).ToList()
+            };
+        }
+
+        // A clean Release directory can start before the asynchronous WDv3 backfill has
+        // rebuilt its local catalog. Keep the restricted tool useful during that window,
+        // but expose only approved IDs and a conservative filename/neutral fallback.
+        var fallbackEmotion = TryGetEmotionFromFileName(path) ?? _labels.FallbackEmotion;
+        var fallbackSemantic = fallbackEmotion switch
+        {
+            "happy" => "smile",
+            "sad" => "crying",
+            "shy" => "blush",
+            "surprised" => "surprised",
+            "embarrassed" => "embarrassed",
+            "angry" => "angry",
+            "comforting" => "hug",
+            "serious" => "serious",
+            "proud" => "smug",
+            _ => "expressionless"
+        };
+        return new OpenCodeStickerCatalogItem
+        {
+            StickerId = Path.GetFileName(path),
+            Emotions = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+            {
+                [fallbackEmotion] = 1
+            },
+            SemanticTags = [fallbackSemantic],
+            IntentTags = []
         };
     }
 
@@ -485,9 +464,7 @@ public sealed class ImageService
         var normalized = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in raw ?? new Dictionary<string, double>())
         {
-            var emotion = NormalizeEmotion(pair.Key);
-            if (emotion == "neutral" && !pair.Key.Equals("neutral", StringComparison.OrdinalIgnoreCase) &&
-                !EmotionAliases.ContainsKey(pair.Key))
+            if (!TryNormalizeEmotion(pair.Key, out var emotion))
                 continue;
             if (!double.IsNaN(pair.Value) && !double.IsInfinity(pair.Value) && pair.Value > 0)
                 normalized[emotion] = Math.Max(normalized.GetValueOrDefault(emotion), Math.Clamp(pair.Value, 0, 1));
@@ -495,22 +472,12 @@ public sealed class ImageService
         return normalized;
     }
 
-    private static string? InferFallbackEmotion(IReadOnlyList<string> tags)
+    private string? InferFallbackEmotion(IReadOnlyList<string> tags)
     {
         foreach (var tag in tags)
         {
-            if (CanonicalEmotions.Contains(tag, StringComparer.OrdinalIgnoreCase))
-                return tag;
-
-            if (tag is "smile" or "excited") return "happy";
-            if (tag is "crying" or "frown") return "sad";
-            if (tag is "blush" or "nervous") return "shy";
-            if (tag is "embarrassed" or "sweatdrop") return "embarrassed";
-            if (tag is "surprised" or "confused") return "surprised";
-            if (tag is "angry" or "pout" or "disgust") return "angry";
-            if (tag is "hug") return "comforting";
-            if (tag is "smug") return "proud";
-            if (tag is "serious" or "expressionless" or "sleepy") return "neutral";
+            if (_labels.TryResolve(tag, out var definition))
+                return definition.BaseEmotion;
         }
         return null;
     }
@@ -575,7 +542,7 @@ public sealed class ImageService
             fullPath.StartsWith(directory, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string? TryGetEmotionFromFileName(string path)
+    private string? TryGetEmotionFromFileName(string path)
     {
         var stem = Path.GetFileNameWithoutExtension(path);
         var prefix = stem.Split(['_', '-'], 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();

@@ -142,7 +142,7 @@ public partial class ChatService : IChatService
 
             var terms = ExtractSearchTerms(focus);
             var recallRequested = hasTimeRange ||
-                                  RecallMarkers.Any(marker =>
+                                  _historyOptions.RecallMarkers.Any(marker =>
                                       focus?.Contains(marker, StringComparison.OrdinalIgnoreCase) == true);
             if (!recallRequested && terms.Count == 0)
                 return Array.Empty<LongTermMemoryRecord>();
@@ -379,9 +379,9 @@ public partial class ChatService : IChatService
     }
 
     private string CurrentPersonaVersion =>
-        string.IsNullOrWhiteSpace(_personaOptions.CurrentValue.Version)
-            ? "hime-v1"
-            : _personaOptions.CurrentValue.Version.Trim();
+        !string.IsNullOrWhiteSpace(_personaOptions.CurrentValue.Version)
+            ? _personaOptions.CurrentValue.Version.Trim()
+            : throw new InvalidOperationException("Personas:Version is required.");
 
     private bool EnsurePersonaVersion(ChatSession session)
     {
@@ -482,13 +482,13 @@ public partial class ChatService : IChatService
         return $"- [{beijingDate}] {speaker}：{content}";
     }
 
-    private static int ScoreForSummary(ChatMessage message)
+    private int ScoreForSummary(ChatMessage message)
     {
         var content = message.Content ?? string.Empty;
         var score = string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase) ? 3 : 1;
         if (content.Contains('？') || content.Contains('?'))
             score += 2;
-        if (KeyTopicMarkers.Any(marker => content.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+        if (_historyOptions.KeyTopicMarkers.Any(marker => content.Contains(marker, StringComparison.OrdinalIgnoreCase)))
             score += 5;
         if (content.Length is >= 24 and <= 360)
             score += 1;
@@ -504,9 +504,9 @@ public partial class ChatService : IChatService
         return normalized.Length == 0 ? null : normalized;
     }
 
-    private static bool LooksSensitiveOrInstructional(string value)
+    private bool LooksSensitiveOrInstructional(string value)
     {
-        return SensitiveOrInstructionMarkers.Any(marker => value.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        return _historyOptions.SensitiveOrInstructionMarkers.Any(marker => value.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string BuildSummaryContext(string summary, DateTime? through)
@@ -521,7 +521,7 @@ public partial class ChatService : IChatService
             """;
     }
 
-    private static string SelectSummaryForFocus(string summary, string? focus)
+    private string SelectSummaryForFocus(string summary, string? focus)
     {
         if (string.IsNullOrWhiteSpace(focus))
             return summary;
@@ -556,10 +556,10 @@ public partial class ChatService : IChatService
         return string.Join('\n', matches);
     }
 
-    private static IReadOnlyList<string> ExtractFocusTerms(string focus)
+    private IReadOnlyList<string> ExtractFocusTerms(string focus)
     {
         var normalized = NormalizeForSummary(focus) ?? string.Empty;
-        var terms = KeyTopicMarkers
+        var terms = _historyOptions.KeyTopicMarkers
             .Where(marker => normalized.Contains(marker, StringComparison.OrdinalIgnoreCase))
             .ToList();
         foreach (var token in normalized.Split([' ', '，', '。', '、', '？', '?', '！', '!', '：', ':'], StringSplitOptions.RemoveEmptyEntries))
@@ -609,7 +609,7 @@ public partial class ChatService : IChatService
         }
     }
 
-    private static LongTermMemoryRecord BuildRawMemoryRecord(
+    private LongTermMemoryRecord BuildRawMemoryRecord(
         ChatSession session,
         ChatMessage message)
     {
@@ -660,13 +660,13 @@ public partial class ChatService : IChatService
         return score;
     }
 
-    private static IReadOnlyList<string> ExtractSearchTerms(string? value)
+    private IReadOnlyList<string> ExtractSearchTerms(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return Array.Empty<string>();
 
         var normalized = NormalizeSearchText(value);
-        foreach (var marker in SearchNoiseMarkers)
+        foreach (var marker in _historyOptions.SearchNoiseMarkers)
             normalized = normalized.Replace(marker, string.Empty, StringComparison.OrdinalIgnoreCase);
         normalized = RelativeTimeNoiseRegex().Replace(normalized, string.Empty);
 
@@ -734,29 +734,6 @@ public partial class ChatService : IChatService
     };
 
     private sealed record SummaryCandidate(ChatMessage Message, string? Line, int Score);
-
-    private static readonly string[] KeyTopicMarkers =
-    [
-        "喜欢", "不喜欢", "偏好", "记住", "称呼", "项目", "计划", "问题", "修复",
-        "配置", "功能", "模型", "工具", "权限", "表情", "语音", "音乐", "机器人", "群"
-    ];
-
-    private static readonly string[] SensitiveOrInstructionMarkers =
-    [
-        "密码", "密钥", "token", "api key", "sk-", "验证码", "身份证", "手机号", "电话",
-        "忽略之前", "系统提示", "执行命令", "powershell", "/admin"
-    ];
-
-    private static readonly string[] RecallMarkers =
-    [
-        "记得", "想起", "聊过", "说过", "以前", "之前", "当时", "那次", "回忆"
-    ];
-
-    private static readonly string[] SearchNoiseMarkers =
-    [
-        "你还记得", "还记得", "记得", "我们聊过", "聊过什么", "说过什么",
-        "想得起来", "想起", "以前", "之前", "当时", "那次", "什么", "这件事", "吗", "呢"
-    ];
 
     [GeneratedRegex(@"\[(?<date>\d{4}-\d{2}-\d{2})\]")]
     private static partial Regex SummaryDateRegex();

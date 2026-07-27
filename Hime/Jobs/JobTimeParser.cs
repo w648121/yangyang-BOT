@@ -26,6 +26,8 @@ public sealed class JobIntentDetector(IOptionsMonitor<JobOptions> options)
 
 public sealed class JobTimeParser
 {
+    private readonly IOptionsMonitor<JobOptions> _options;
+
     private const string NumberPattern = @"(?:\d{1,4}|[零〇一二两三四五六七八九十百]+)";
     private const string DurationComponentPattern =
         $@"(?:{NumberPattern}\s*(?:年|个月|月|天|小时|分钟|分)|半\s*小时)";
@@ -61,6 +63,11 @@ public sealed class JobTimeParser
     private static readonly Regex MarkerContentRegex = new(
         @"(?:别忘记|别忘了|记得)?\s*提醒(?:我|一下|下)?\s*(?<content>.+)$",
         RegexOptions.Compiled);
+
+    public JobTimeParser(IOptionsMonitor<JobOptions> options)
+    {
+        _options = options;
+    }
 
     public JobParseResult Parse(
         string? rawText,
@@ -247,15 +254,21 @@ public sealed class JobTimeParser
         return true;
     }
 
-    private static string Normalize(string? text) =>
-        (text ?? string.Empty)
+    private string Normalize(string? text)
+    {
+        var value = (text ?? string.Empty)
             .Trim()
             .Replace('，', ' ')
             .Replace('。', ' ')
             .Replace('？', ' ')
-            .Replace('！', ' ')
-            .Replace("顶个闹钟", "定个闹钟", StringComparison.Ordinal)
-            .Replace("订个闹钟", "定个闹钟", StringComparison.Ordinal);
+            .Replace('！', ' ');
+        foreach (var (source, replacement) in _options.CurrentValue.InputNormalizationReplacements)
+        {
+            if (!string.IsNullOrWhiteSpace(source))
+                value = value.Replace(source, replacement ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        return value;
+    }
 
     private static JobRecurrenceKind ResolveRecurrence(string text, out int? weeklyDay)
     {
@@ -369,7 +382,7 @@ public sealed class JobTimeParser
         return true;
     }
 
-    private static string ExtractContent(string text)
+    private string ExtractContent(string text)
     {
         var marked = MarkerContentRegex.Match(text);
         if (marked.Success)
@@ -381,37 +394,12 @@ public sealed class JobTimeParser
         content = ColonClockRegex.Replace(content, " ");
         content = NumericDateRegex.Replace(content, " ");
         content = WeeklyRegex.Replace(content, " ");
-        string[] removable =
-        [
-            "/提醒",
-            "秧秧",
-            "请",
-            "帮我",
-            "给我",
-            "定个闹钟",
-            "设置闹钟",
-            "设个闹钟",
-            "提醒我",
-            "提醒一下",
-            "提醒下",
-            "到时候",
-            "别忘记",
-            "别忘了",
-            "记得",
-            "每天",
-            "每日",
-            "今天",
-            "明天",
-            "后天",
-            "今晚",
-            "明早"
-        ];
-        foreach (var value in removable)
+        foreach (var value in ConfiguredRemovalMarkers(_options.CurrentValue))
             content = content.Replace(value, " ", StringComparison.Ordinal);
         return CleanContent(content);
     }
 
-    public static string RemoveTemporalExpressions(string text)
+    public string RemoveTemporalExpressions(string text)
     {
         var value = Normalize(text);
         value = RelativeRegex.Replace(value, " ");
@@ -419,7 +407,7 @@ public sealed class JobTimeParser
         value = ColonClockRegex.Replace(value, " ");
         value = NumericDateRegex.Replace(value, " ");
         value = WeeklyRegex.Replace(value, " ");
-        foreach (var marker in new[] { "每天", "每日", "今天", "明天", "后天", "今晚", "明早" })
+        foreach (var marker in _options.CurrentValue.TemporalRemovalMarkers.Where(marker => !string.IsNullOrWhiteSpace(marker)))
             value = value.Replace(marker, " ", StringComparison.Ordinal);
         return CleanContent(value);
     }
@@ -428,15 +416,37 @@ public sealed class JobTimeParser
         Regex.Replace(value, @"\s+", " ")
             .Trim(' ', ',', '，', '.', '。', '!', '！', '?', '？', ':', '：');
 
-    private static string CleanEventName(string value)
+    private string CleanEventName(string value)
     {
-        var eventName = Regex.Replace(
-            value,
-            @"^(?:秧秧)?(?:我(?:们)?的?)?(?:(?:每天|每日)|每(?:周|星期)[一二三四五六日天]?|通常|一般)*",
-            string.Empty);
-        return CleanContent(eventName)
-            .TrimEnd('的');
+        var eventName = CleanContent(value);
+        var options = _options.CurrentValue;
+        foreach (var marker in options.AssistantAliases
+                     .Concat(options.EventNameNoiseWords)
+                     .Concat(options.TemporalRemovalMarkers)
+                     .Where(marker => !string.IsNullOrWhiteSpace(marker))
+                     .OrderByDescending(marker => marker.Length))
+        {
+            while (eventName.StartsWith(marker, StringComparison.OrdinalIgnoreCase))
+                eventName = CleanContent(eventName[marker.Length..]);
+        }
+
+        foreach (var suffix in options.EventNameSuffixes
+                     .Where(suffix => !string.IsNullOrWhiteSpace(suffix))
+                     .OrderByDescending(suffix => suffix.Length))
+        {
+            while (eventName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                eventName = CleanContent(eventName[..^suffix.Length]);
+        }
+
+        return CleanContent(eventName).TrimEnd('的');
     }
+
+    private static IEnumerable<string> ConfiguredRemovalMarkers(JobOptions options) =>
+        options.AssistantAliases
+            .Concat(options.ContentRemovalMarkers)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(value => value.Length);
 
     public static bool TryParseDuration(string value, out CalendarDuration duration)
     {

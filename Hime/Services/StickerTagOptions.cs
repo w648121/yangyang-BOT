@@ -30,4 +30,15 @@ public sealed class StickerTagOptions
 
     /// <summary>Metadata snapshot consumed by the restricted OpenCode sticker tool.</summary>
     public string OpenCodeSnapshotPath { get; set; } = "runtime/opencode-sticker-catalog.json";
+
+    public bool IsValid() =>
+        !string.IsNullOrWhiteSpace(CatalogPath) &&
+        MaxTagsPerSticker > 0 &&
+        BackfillBatchSize > 0 &&
+        RefreshMinutes > 0 &&
+        StrongMatchThreshold is > 0 and <= 1 &&
+        PartialMatchThreshold is > 0 and <= 1 &&
+        PartialMatchThreshold <= StrongMatchThreshold &&
+        NeutralFallbackTags.Any(tag => !string.IsNullOrWhiteSpace(tag)) &&
+        !string.IsNullOrWhiteSpace(OpenCodeSnapshotPath);
 }

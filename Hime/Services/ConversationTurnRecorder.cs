@@ -48,6 +48,8 @@ public sealed class ConversationTurnRecorder(
                 UserId = turn.UserId,
                 Nickname = turn.Nickname,
                 GroupId = turn.GroupId,
+                TopicId = turn.TopicId,
+                ConversationParticipants = turn.ConversationParticipants.ToList(),
                 UserText = turn.UserText,
                 UserImagePaths = turn.UserImagePaths.ToList(),
                 Trigger = turn.Trigger.ToString(),
@@ -55,6 +57,10 @@ public sealed class ConversationTurnRecorder(
                 AssistantImagePaths = imagePaths.ToList(),
                 Emotion = delivered.Emotion,
                 Source = delivered.Source,
+                AssistantMessageId = delivered.PlatformMessageId,
+                SocialIntentId = Trim(delivered.SocialIntentId, 80),
+                DialogueAct = Trim(delivered.DialogueAct, 40),
+                CandidateSummary = Trim(delivered.CandidateSummary, 240),
                 StartedAtUtc = turn.StartedAt.UtcDateTime,
                 DeliveredAtUtc = DateTime.UtcNow
             });
@@ -101,7 +107,14 @@ public sealed class ConversationTurnRecorder(
                 turn,
                 () => groupActivities.RecordBotReply(
                     groupId,
-                    text.Length > 0 ? text : BuildMediaSummary(imagePaths.Count)));
+                    text.Length > 0 ? text : BuildMediaSummary(imagePaths.Count),
+                    replyToMessageId: long.TryParse(turn.SourceMessageId, out var replyMessageId)
+                        ? replyMessageId
+                        : null,
+                    replyToUserId: turn.UserId > 0 ? turn.UserId : null,
+                    topicId: turn.TopicId,
+                    conversationParticipants: turn.ConversationParticipants,
+                    messageId: delivered.PlatformMessageId ?? 0));
         }
 
         var sourceMessageId = long.TryParse(turn.SourceMessageId, out var parsedMessageId)
@@ -140,6 +153,12 @@ public sealed class ConversationTurnRecorder(
 
     private static string BuildMediaSummary(int imageCount) =>
         imageCount > 0 ? $"[已发送图片 ×{imageCount}]" : "[已发送媒体]";
+
+    private static string Trim(string? value, int maximum)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        return normalized.Length <= maximum ? normalized : normalized[..maximum];
+    }
 
     private void TryProject(string projection, TurnContext turn, Action action)
     {
