@@ -82,6 +82,12 @@ Assert(SetuIntentInterpreter.TryParseDeterministic("来三张色图", 10, config
 Assert(SetuIntentInterpreter.TryParseDeterministic("随机涩图", 10, configuredSetu, out var randomSetu) &&
        randomSetu.Source == SetuSourceMode.Random,
     "explicit random request should use DMOE or LoliAPI");
+Assert(SetuIntentInterpreter.TryParseDeterministic("想看随机色图", 10, configuredSetu, out var naturalRandomSetu) &&
+       naturalRandomSetu.Source == SetuSourceMode.Random,
+    "natural random image requests should still use a random provider");
+Assert(SetuIntentInterpreter.TryParseDeterministic("想看不一样的涩图", 10, configuredSetu, out var differentRandomSetu) &&
+       differentRandomSetu.Source == SetuSourceMode.Random,
+    "generic variety image requests should not become empty Lolicon tag searches");
 Assert(SetuIntentInterpreter.TryParseDeterministic("要涩图", 10, configuredSetu, out var genericRandomSetu) &&
        genericRandomSetu.Source == SetuSourceMode.Random,
     "generic 要涩图 request should use a random provider");
@@ -250,6 +256,30 @@ Assert(analyzedRelationshipIntent.IntentId == relationshipSocialRule.Id &&
        analyzedRelationshipIntent.Posture == relationshipSocialRule.Posture &&
        analyzedRelationshipIntent.MatchedMarkers.Count == 1,
     "social intent detection should use configured markers and posture instead of hardcoded prompt.Contains branches");
+var emotionalNeedIntent = socialIntentAnalyzer.Analyze(
+    "今天下雨，所有人都有伞，就我没有",
+    new DialogueDecision(
+        DialogueAct.Support,
+        IncludeRelationshipContext: false,
+        IncludePersonaState: true,
+        IncludePlotKnowledge: false,
+        IncludeCadenceExamples: true,
+        IncludeTrustedClock: false,
+        "test emotional support cue"),
+    new ConversationRoute(ConversationMode.Casual, "test", AllowDecorativeMedia: true));
+Assert(emotionalNeedIntent.IntentId == "emotional_need" &&
+       emotionalNeedIntent.SocialAction == DialogueAct.Support.ToString(),
+    "ordinary social exclusion should be classified as a support turn");
+Assert(socialIntentAnalyzer.Analyze(
+        "我今天被群友晾着了",
+        new DialogueDecision(DialogueAct.Support, false, true, false, true, false, "test"),
+        new ConversationRoute(ConversationMode.Casual, "test", AllowDecorativeMedia: true)).IntentId == "emotional_need",
+    "being ignored by the group should be recognized as an emotional need");
+Assert(socialIntentAnalyzer.Analyze(
+        "不是这个意思，你刚才理解错了",
+        new DialogueDecision(DialogueAct.Repair, false, false, false, false, false, "test"),
+        new ConversationRoute(ConversationMode.Casual, "test", AllowDecorativeMedia: true)).IntentId == "repair_or_quality_feedback",
+    "user correction should be classified as a repair turn");
 
 var configuredResponsePolicies = configuration.GetSection("ResponsePolicies").Get<ResponsePolicyOptions>()
     ?? throw new InvalidOperationException("ResponsePolicies configuration should bind");
@@ -660,6 +690,8 @@ Assert(stickerRequestParser.GetRequestedCount("来两张表情包") == 2, "Chine
 Assert(stickerRequestParser.GetRequestedCount("给我什个表情") == 3, "colloquial three-sticker request should be detected");
 Assert(stickerRequestParser.GetRequestedCount("三连表情包") == 3, "three-in-a-row sticker request should be detected");
 Assert(stickerRequestParser.GetRequestedCount("发一个忧伤的表情包") == 1, "single sticker request should be detected");
+Assert(stickerRequestParser.GetRequestedCount("来个不开心的表情包") == 1,
+    "implicit single sticker requests should be detected without an explicit number");
 Assert(stickerRequestParser.GetRequestedEmotions("发一个忧伤的表情包").SequenceEqual(["sad"]),
     "sad sticker request should select sad emotion");
 Assert(stickerRequestParser.GetRequestedEmotions("发一个开心的表情包").SequenceEqual(["happy"]),
@@ -670,6 +702,9 @@ Assert(compoundStickerEmotions.SequenceEqual(["sad", "angry"], StringComparer.Or
 var negativeHappyEmotions = stickerRequestParser.GetRequestedEmotions("发一个不开心的表情包");
 Assert(negativeHappyEmotions.SequenceEqual(["sad"], StringComparer.OrdinalIgnoreCase),
     "a negated happy label must resolve to sad instead of happy");
+var avoidedHappyEmotions = stickerRequestParser.GetRequestedEmotions("别发开心的，来个难过的表情");
+Assert(avoidedHappyEmotions.SequenceEqual(["sad"], StringComparer.OrdinalIgnoreCase),
+    "an explicitly avoided emotion should not be included when a later requested emotion is present");
 Assert(VisibleReplyTextSanitizer.Clean("你好呀 ``") == "你好呀",
     "a trailing double-backtick protocol artifact should be removed");
 Assert(VisibleReplyTextSanitizer.Clean("你好呀 ``。") == "你好呀。",

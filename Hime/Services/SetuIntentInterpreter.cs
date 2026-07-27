@@ -66,7 +66,10 @@ public sealed partial class SetuIntentInterpreter
                 return true;
             }
             var tags = ExtractTags(query, options);
-            var genericRandom = GenericRandomLeadRegex().IsMatch(explicitMatch.Groups["lead"].Value) && tags.Count == 0;
+            var genericRandom =
+                tags.Count == 0 &&
+                (GenericRandomLeadRegex().IsMatch(explicitMatch.Groups["lead"].Value) ||
+                 IsRandomOnlyQuery(query));
             request = new SetuRequest(
                 ParseCount(explicitMatch.Groups["count"].Value, maxImages),
                 tags,
@@ -260,6 +263,20 @@ public sealed partial class SetuIntentInterpreter
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(8)
             .ToArray();
+
+    private static bool IsRandomOnlyQuery(string? query)
+    {
+        var normalized = Normalize(query).Trim(' ', '\t', '，', ',', '、', '的');
+        if (normalized.Length == 0)
+            return false;
+
+        return normalized.Contains("随机", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("随便", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("不一样", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("换一", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("来点别", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("别的", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool ContainsForbiddenTag(string value, SetuOptions options) =>
         options.ForbiddenTags
