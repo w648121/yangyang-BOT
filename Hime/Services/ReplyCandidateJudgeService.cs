@@ -133,22 +133,31 @@ public sealed class ReplyCandidateJudgeService(
             reasons.Add("超过候选长度上限");
         }
 
+        foreach (var rule in MatchingPenaltyRules(judge, reply, userPrompt, plan.SocialIntent.IntentId))
+        {
+            score -= rule.Penalty;
+            reasons.Add(rule.Reason);
+        }
+
         var sceneKey = SceneKey(scene);
         var personaId = runtime.Current.ProfileId;
+        var groupId = plan.Messages.LastOrDefault(message => message.Role == "user")?.GroupId;
         var goodExamples = learning.FindRelevant(
             personaId,
             plan.SocialIntent.IntentId,
             sceneKey,
             userPrompt,
             "good",
-            options.CurrentValue.MaxGoodExamplesPerPrompt);
+            options.CurrentValue.MaxGoodExamplesPerPrompt,
+            groupId);
         var badExamples = learning.FindRelevant(
             personaId,
             plan.SocialIntent.IntentId,
             sceneKey,
             userPrompt,
             "bad",
-            options.CurrentValue.MaxBadExamplesPerPrompt);
+            options.CurrentValue.MaxBadExamplesPerPrompt,
+            groupId);
         var goodSimilarity = MaxExampleSimilarity(reply, goodExamples);
         var badSimilarity = MaxExampleSimilarity(reply, badExamples);
         if (goodSimilarity >= judge.ExampleSimilarityThreshold)
@@ -168,6 +177,37 @@ public sealed class ReplyCandidateJudgeService(
             assessment.Score,
             reasons,
             source);
+    }
+
+    private static IEnumerable<ReplyCandidatePenaltyRuleOptions> MatchingPenaltyRules(
+        ReplyCandidateJudgeOptions judge,
+        string reply,
+        string userPrompt,
+        string intentId)
+    {
+        foreach (var rule in judge.PenaltyRules)
+        {
+            if (rule.IntentIds.Count > 0 &&
+                !rule.IntentIds.Any(value =>
+                    intentId.Equals(value?.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (rule.ExceptWhenUserMentions.Any(marker =>
+                    !string.IsNullOrWhiteSpace(marker) &&
+                    userPrompt.Contains(marker.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (rule.ReplyMarkers.Any(marker =>
+                    !string.IsNullOrWhiteSpace(marker) &&
+                    reply.Contains(marker.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                yield return rule;
+            }
+        }
     }
 
     private async Task<IReadOnlyList<string>> GenerateAlternativesAsync(

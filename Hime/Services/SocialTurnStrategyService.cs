@@ -40,14 +40,16 @@ public sealed class SocialTurnStrategyService(
             scene,
             request.UserPrompt,
             "good",
-            Math.Clamp(current.MaxGoodExamplesPerPrompt, 0, 8));
+            Math.Clamp(current.MaxGoodExamplesPerPrompt, 0, 8),
+            request.Turn.GroupId);
         var badExamples = learning.FindRelevant(
             personaId,
             intent.IntentId,
             scene,
             request.UserPrompt,
             "bad",
-            Math.Clamp(current.MaxBadExamplesPerPrompt, 0, 8));
+            Math.Clamp(current.MaxBadExamplesPerPrompt, 0, 8),
+            request.Turn.GroupId);
 
         var builder = new StringBuilder();
         builder.AppendLine("<dynamic_social_turn_strategy>");
@@ -76,7 +78,8 @@ public sealed class SocialTurnStrategyService(
         AppendExamples(builder, "good_reply_examples", goodExamples, "Reference their social structure and rhythm only; never copy names, facts, images, or private claims.");
         AppendExamples(builder, "bad_reply_examples", badExamples, "Avoid these failure patterns and reasons; do not paraphrase them.");
 
-        builder.AppendLine("Before answering, silently choose one concrete conversational move: answer, tease back softly, clarify, repair, comfort, refuse gently, or stay brief. Then write only the final visible reply.");
+        AppendRules(builder, "allowed_conversation_moves", current.ReplyMoveChoices);
+        builder.AppendLine("Before answering, silently choose exactly one matching conversation move from the allowed list. Then write only the final visible reply.");
         builder.AppendLine("</dynamic_social_turn_strategy>");
 
         return new SocialTurnStrategy(intent, builder.ToString());

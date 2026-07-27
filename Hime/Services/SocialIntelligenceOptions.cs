@@ -29,6 +29,9 @@ public sealed class SocialIntelligenceOptions
 
     public List<string> PersonaBoundaryRules { get; set; } = [];
 
+    public List<string> ReplyMoveChoices { get; set; } =
+        ["answer", "tease back softly", "clarify", "repair", "comfort", "refuse gently", "stay brief"];
+
     public List<SocialIntentRuleOptions> IntentRules { get; set; } = [];
 
     public ReplyCandidateJudgeOptions CandidateJudge { get; set; } = new();
@@ -44,6 +47,7 @@ public sealed class SocialIntelligenceOptions
         CommonStrategyRules.Any(IsPresent) &&
         NaturalnessAvoidRules.Any(IsPresent) &&
         PersonaBoundaryRules.Any(IsPresent) &&
+        ReplyMoveChoices.Any(IsPresent) &&
         IntentRules.Any(rule => rule.IsValid()) &&
         CandidateJudge.IsValid();
 
@@ -116,6 +120,8 @@ public sealed class ReplyCandidateJudgeOptions
     public List<string> AlwaysGenerateForDialogueActs { get; set; } =
         ["Relationship", "Repair", "Support"];
 
+    public List<ReplyCandidatePenaltyRuleOptions> PenaltyRules { get; set; } = [];
+
     public string AlternativePrompt { get; set; } =
         "Generate one fresh alternative reply to the same latest user message. Output only the final visible reply.";
 
@@ -128,5 +134,27 @@ public sealed class ReplyCandidateJudgeOptions
         BadExamplePenalty is >= 0 and <= 80 &&
         ExampleSimilarityThreshold is >= 0 and <= 1 &&
         MaxCandidateCharacters is >= 40 and <= 2000 &&
+        PenaltyRules.All(rule => rule.IsValid()) &&
         !string.IsNullOrWhiteSpace(AlternativePrompt);
+}
+
+public sealed class ReplyCandidatePenaltyRuleOptions
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Reason { get; set; } = string.Empty;
+
+    public int Penalty { get; set; } = 8;
+
+    public List<string> ReplyMarkers { get; set; } = [];
+
+    public List<string> ExceptWhenUserMentions { get; set; } = [];
+
+    public List<string> IntentIds { get; set; } = [];
+
+    public bool IsValid() =>
+        !string.IsNullOrWhiteSpace(Id) &&
+        !string.IsNullOrWhiteSpace(Reason) &&
+        Penalty is >= 0 and <= 80 &&
+        ReplyMarkers.Any(marker => !string.IsNullOrWhiteSpace(marker));
 }

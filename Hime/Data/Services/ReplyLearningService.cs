@@ -39,7 +39,7 @@ public sealed class ReplyLearningService
         {
             Id = BuildId(draft),
             PersonaId = NormalizeToken(draft.PersonaId, "yangyang"),
-            Label = NormalizeLabel(draft.Label),
+            Label = NormalizeLearningLabel(draft.Label),
             IntentId = NormalizeToken(draft.IntentId, "ordinary_chat"),
             Scene = Trim(draft.Scene, 80),
             UserMessage = Trim(draft.UserMessage, 800),
@@ -63,7 +63,8 @@ public sealed class ReplyLearningService
         string scene,
         string userMessage,
         string label,
-        int maximum)
+        int maximum,
+        long? groupId = null)
     {
         var options = _options.CurrentValue;
         if (!options.Enabled || maximum <= 0)
@@ -71,7 +72,7 @@ public sealed class ReplyLearningService
 
         var normalizedPersona = NormalizeToken(personaId, "yangyang");
         var normalizedIntent = NormalizeToken(intentId, options.DefaultIntentId);
-        var normalizedLabel = NormalizeLabel(label);
+        var normalizedLabel = NormalizeLearningLabel(label);
         var limit = Math.Clamp(maximum, 1, 8);
         var scanLimit = Math.Clamp(options.MaxLearningExamplesToScan, 20, 2000);
         var minSimilarity = Math.Clamp(options.MinimumExampleSimilarity, 0, 1);
@@ -82,7 +83,9 @@ public sealed class ReplyLearningService
             candidates = Examples
                 .Find(record =>
                     record.PersonaId == normalizedPersona &&
-                    record.Label == normalizedLabel)
+                    record.Label == normalizedLabel &&
+                    (!record.GroupId.HasValue ||
+                     (groupId.HasValue && record.GroupId == groupId)))
                 .OrderByDescending(record => record.CreatedAtUtc)
                 .Take(scanLimit)
                 .ToList();
@@ -91,7 +94,7 @@ public sealed class ReplyLearningService
         var matches = candidates
             .Select(record => new ReplyLearningExampleMatch(
                 record,
-                Score(record, normalizedIntent, scene, userMessage)))
+                Score(record, normalizedIntent, scene, userMessage, groupId)))
             .Where(match => match.Score >= minSimilarity)
             .OrderByDescending(match => match.Score)
             .ThenByDescending(match => match.Record.CreatedAtUtc)
@@ -117,7 +120,7 @@ public sealed class ReplyLearningService
 
     public ReplyLearningRecord? GetLatest(long? groupId, string label = "")
     {
-        var normalized = string.IsNullOrWhiteSpace(label) ? string.Empty : NormalizeLabel(label);
+        var normalized = string.IsNullOrWhiteSpace(label) ? string.Empty : NormalizeLearningLabel(label);
         lock (_sync)
         {
             return Examples
@@ -134,7 +137,7 @@ public sealed class ReplyLearningService
         string label = "",
         int maximum = 10)
     {
-        var normalized = string.IsNullOrWhiteSpace(label) ? string.Empty : NormalizeLabel(label);
+        var normalized = string.IsNullOrWhiteSpace(label) ? string.Empty : NormalizeLearningLabel(label);
         var limit = Math.Clamp(maximum, 1, 30);
         lock (_sync)
         {
@@ -232,7 +235,8 @@ public sealed class ReplyLearningService
         ReplyLearningRecord record,
         string intentId,
         string scene,
-        string userMessage)
+        string userMessage,
+        long? groupId)
     {
         var score = 0d;
         if (record.IntentId.Equals(intentId, StringComparison.OrdinalIgnoreCase))
@@ -240,9 +244,15 @@ public sealed class ReplyLearningService
         if (!string.IsNullOrWhiteSpace(scene) &&
             record.Scene.Equals(scene, StringComparison.OrdinalIgnoreCase))
             score += 0.10d;
+        if (record.GroupId.HasValue && groupId.HasValue && record.GroupId == groupId)
+            score += 0.10d;
+        else if (!record.GroupId.HasValue)
+            score += 0.04d;
 
         score += ConversationTopicGraph.Similarity(record.UserMessage, userMessage) * 0.40d;
-        score += ConversationTopicGraph.Similarity(record.BotReply, userMessage) * 0.05d;
+        score += ConversationTopicGraph.Similarity(record.BotReply, userMessage) * 0.08d;
+        score += ConversationTopicGraph.Similarity(record.Reason, userMessage) * 0.08d;
+        score += KeywordOverlapScore(record, userMessage) * 0.10d;
         return Math.Clamp(score * NormalizeWeight(record.Weight), 0, 1);
     }
 
@@ -252,6 +262,59 @@ public sealed class ReplyLearningService
         return normalized is "bad" or "坏" or "差" or "反例" or "negative"
             ? "bad"
             : "good";
+    }
+
+    private static string NormalizeLearningLabel(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized is "bad" or "坏" or "差" or "反例" or "negative")
+            return "bad";
+        if (normalized is "good" or "好" or "正例" or "positive")
+            return "good";
+
+        return NormalizeLabel(value) == "bad"
+            ? "bad"
+            : "good";
+    }
+
+    private static double KeywordOverlapScore(ReplyLearningRecord record, string userMessage)
+    {
+        var source = ExtractKeywords(string.Join(
+            ' ',
+            record.UserMessage,
+            record.BotReply,
+            record.Reason));
+        var target = ExtractKeywords(userMessage);
+        if (source.Count == 0 || target.Count == 0)
+            return 0;
+
+        var intersection = source.Count(target.Contains);
+        return Math.Clamp(intersection / (double)Math.Min(source.Count, target.Count), 0, 1);
+    }
+
+    private static HashSet<string> ExtractKeywords(string? value)
+    {
+        var normalized = new string((value ?? string.Empty)
+            .Select(ch => char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : ' ')
+            .ToArray());
+        return normalized
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(token => token.Length >= 2)
+            .Concat(ExtractChineseBigrams(value))
+            .Take(64)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> ExtractChineseBigrams(string? value)
+    {
+        var chinese = new string((value ?? string.Empty)
+            .Where(ch => ch is >= '\u4e00' and <= '\u9fff')
+            .ToArray());
+        if (chinese.Length < 2)
+            yield break;
+
+        for (var index = 0; index + 1 < chinese.Length; index++)
+            yield return chinese.Substring(index, 2);
     }
 
     private static string NormalizeToken(string? value, string fallback)
@@ -275,7 +338,7 @@ public sealed class ReplyLearningService
         var payload = string.Join(
             "|",
             NormalizeToken(draft.PersonaId, "yangyang"),
-            NormalizeLabel(draft.Label),
+            NormalizeLearningLabel(draft.Label),
             NormalizeToken(draft.IntentId, "ordinary_chat"),
             draft.Scene,
             draft.UserMessage,

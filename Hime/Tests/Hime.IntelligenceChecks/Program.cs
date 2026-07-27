@@ -221,8 +221,10 @@ var configuredSocialIntelligence =
     configuration.GetSection("SocialIntelligence").Get<SocialIntelligenceOptions>()
     ?? throw new InvalidOperationException("SocialIntelligence configuration should bind");
 Assert(configuredSocialIntelligence.IsValid() &&
-       configuredSocialIntelligence.IntentRules.Count >= 5,
-    "social intelligence must be configuration-backed and expose several runtime-editable intent rules");
+       configuredSocialIntelligence.IntentRules.Count >= 5 &&
+       configuredSocialIntelligence.ReplyMoveChoices.Count >= 5 &&
+       configuredSocialIntelligence.CandidateJudge.PenaltyRules.Count >= 3,
+    "social intelligence must be configuration-backed and expose runtime-editable intent, reply-move and judge rules");
 var configuredGroupSceneAwareness =
     configuration.GetSection("GroupSceneAwareness").Get<GroupSceneAwarenessOptions>()
     ?? throw new InvalidOperationException("GroupSceneAwareness configuration should bind");
@@ -1705,8 +1707,9 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
            relationshipSocialPlan.Decision.IncludeRelationshipContext &&
            relationshipSocialPlan.RequestProfile.PreferDirect &&
            relationshipSocialPrompt.Contains("<evidence_backed_relationship_plan>", StringComparison.Ordinal) &&
-           relationshipSocialPrompt.Contains("social_intent=relationship_tease", StringComparison.Ordinal),
-        "relationship requests must retain evidence-backed boundaries and use the low-latency direct path");
+           relationshipSocialPrompt.Contains("social_intent=relationship_tease", StringComparison.Ordinal) &&
+           relationshipSocialPrompt.Contains("allowed_conversation_moves", StringComparison.Ordinal),
+        "relationship requests must retain evidence-backed boundaries, dynamic reply moves, and use the low-latency direct path");
 
     var reactiveTurn = ordinarySocialTurn with
     {
@@ -1749,7 +1752,9 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
         ReplyCandidateJudgeUsage.ExplicitAi);
     Assert(candidateChoice.Replaced &&
            candidateChoice.Reply.Contains("具体", StringComparison.Ordinal) &&
-           candidateChoice.Candidates.Count >= 2,
+           candidateChoice.Candidates.Count >= 2 &&
+           candidateChoice.Candidates.Any(candidate =>
+               candidate.Reasons.Any(reason => reason.Contains("AI/规则/权限腔", StringComparison.Ordinal))),
         "candidate judge should replace a generic service-tone draft with a more concrete social reply when an alternative is better");
 
     var contextDatabase = architectureProvider.GetRequiredService<HimeDbContext>();
@@ -1780,6 +1785,33 @@ await using (var architectureProvider = architectureServices.BuildServiceProvide
     Assert(learnedRecord.Id == duplicateLearnedRecord.Id &&
            learningMatches.Any(match => match.Record.Id == learnedRecord.Id),
         "reply learning should upsert human-reviewed examples and retrieve them by intent, scene and similarity");
+    var groupScopedDraft = learningDraft with
+    {
+        UserMessage = "群内查询信息时别像客服，先问清楚是哪条线索。",
+        BotReply = "你要查哪条线索？我先帮你把能对上的记录拎出来。",
+        Reason = "同群内的能力查询应该先承接语境。",
+        GroupId = contextGroupId
+    };
+    var groupScopedRecord = replyLearning.AddExample(groupScopedDraft);
+    var sameGroupLearningMatches = replyLearning.FindRelevant(
+        learningPersona,
+        "capability_query",
+        "group_reply",
+        "帮我查一下这条线索",
+        "good",
+        5,
+        contextGroupId);
+    var otherGroupLearningMatches = replyLearning.FindRelevant(
+        learningPersona,
+        "capability_query",
+        "group_reply",
+        "帮我查一下这条线索",
+        "good",
+        5,
+        contextGroupId + 1);
+    Assert(sameGroupLearningMatches.Any(match => match.Record.Id == groupScopedRecord.Id) &&
+           otherGroupLearningMatches.All(match => match.Record.Id != groupScopedRecord.Id),
+        "group-scoped reply learning examples must not leak into unrelated groups");
     var weightedRecord = replyLearning.SetWeight(learnedRecord.Id, null, 2.5);
     var listedLearning = replyLearning.ListExamples(null, "good", 5);
     var shortLearningId = learnedRecord.Id["learn:".Length..][..8];
